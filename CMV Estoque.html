@@ -253,9 +253,10 @@ function catRazao(h){
   }
   if (/DEVOL/.test(s)) return 'devol';
   if (/BONIFICA/.test(s)) return 'bonif';
-  if (/SERVICO/.test(s)) return 'servico';
   if (/CONSERTO|COMODATO|DEMONSTRA/.test(s)) return 'outros';
+  // "compras ... comercio e servicos" é compra: o nome do fornecedor não decide o tipo
   if (/COMPRA|AQUISI|IMPORTA/.test(s)) return 'compra';
+  if (/SERVICOS? TOMADOS?/.test(s)) return 'servico';
   return 'outros';
 }
 const numNota = h => { const m = String(h).match(/NESTA DATA\s+(\d+)/i) || String(h).match(/\bN(?:F|OTA)[\s.º°:-]*(?:FISCAL)?[\s.º°:-]*(\d{2,})/i); return m ? m[1].replace(/^0+/, '') : null; };
