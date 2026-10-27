@@ -168,7 +168,7 @@ details summary{cursor:pointer;color:var(--accent);margin:6px 0}
 
 <script>
 /* atualização: ao abrir pelo site, busca a página sem cache; se a versão publicada for outra, recarrega uma vez */
-const VERSAO = '2026-10-27.2';
+const VERSAO = '2026-10-27.2';   // troque a cada publicação no GitHub
 if (location.protocol.startsWith('http') && !emArtifactCedo()){
   fetch(location.pathname, {cache:'reload'}).then(r => r.ok ? r.text() : '').then(t => {
     const m = t.match(/const VERSAO = '([^']+)'/);
