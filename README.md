@@ -28,18 +28,17 @@ O estoque inicial do primeiro mês pode ser digitado por tipo (veículos e peça
 
 ## O que a página mostra
 
-- **CMV a lançar:** para cada mês e tipo de estoque, mostra:
-  - o CMV do mês (estoque inicial + movimento do razão sem CMV − inventário final);
-  - o que já foi lançado;
-  - a diferença do mês e a pendência de meses anteriores;
-  - o lançamento sugerido (débito e crédito).
+- **CMV a lançar:** para cada mês, veículos e peças separados:
+  - estoque inicial, compras, crédito de IPI, crédito de PIS/COFINS, devoluções e outros, inventário final;
+  - o CMV (estoque inicial + compras − deduções − inventário final), com a marcação se já está lançado no Domínio. Em vermelho fica o que ainda não foi lançado, e em amarelo o que foi lançado com diferença;
+  - clicando na linha, abre a memória de cálculo e os valores gerais do mês.
 - **Mês a mês:** CMV apurado pelo SPED (estoque inicial + compras − estoque final), comparado com o CMV contabilizado, e uma tabela de estoque por tipo.
 - **Detalhe do mês:**
   - apuração e conferência com o razão;
   - memória de cálculo;
   - compras conferidas nota a nota (SPED × razão);
   - entradas por CFOP, com o tratamento de cada CFOP ajustável.
-- **Relatórios:** geral e mensal, em PDF (pela impressão do navegador) e em Excel.
+- **Relatórios:** geral e mensal, em PDF (pela impressão do navegador) e em Excel. Mostram, mês a mês e por tipo de estoque: estoque inicial + entradas − deduções − CMV = estoque final, com a situação do CMV no Domínio.
 
 ## Regras de cálculo
 

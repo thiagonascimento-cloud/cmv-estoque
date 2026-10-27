@@ -71,6 +71,8 @@ tr.big td{font-size:17px}
 tr.click{cursor:pointer}
 tr.click:hover td{background:var(--accent-soft)}
 .neg{color:var(--bad)}
+td.cmvcol,th.cmvcol{background:var(--accent-soft);border-left:2px solid var(--accent);border-right:2px solid var(--accent)}
+td.cmvcol .status{margin-top:3px}
 .src{color:var(--muted);font-size:12px}
 input[type=text],input[type=number],select{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:6px;padding:4px 6px}
 input.money{width:140px;text-align:right}
@@ -78,6 +80,7 @@ input.money{width:140px;text-align:right}
 .status.ok{background:var(--ok-soft);color:var(--ok)}
 .status.bad{background:var(--bad-soft);color:var(--bad)}
 .status.na{background:var(--bg);color:var(--muted)}
+.status.warn{background:var(--warn-soft);color:var(--warn)}
 .empty{color:var(--muted);padding:24px;text-align:center}
 .opts{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:10px;font-size:13px}
 .scroll{overflow-x:auto}
@@ -110,7 +113,6 @@ details summary{cursor:pointer;color:var(--accent);margin:6px 0}
 .rep td,.rep th{border-bottom:1px solid #ccc;padding:3px 5px;color:#000}
 .rep th{background:#eee;font-size:10.5px}
 .rep .neg{color:#b00}
-.rep .status{border:1px solid #999;background:none;color:#000}
 .rep .pb{break-before:page}
 @media print{
   body.printing .wrap{display:none}
@@ -149,6 +151,7 @@ details summary{cursor:pointer;color:var(--accent);margin:6px 0}
       <div class="list"></div>
     </div>
   </div>
+  <div class="src" id="repetidos" hidden style="margin:-6px 0 14px"></div>
   <input type="file" id="picker" multiple hidden>
 
   <div id="out"></div>
@@ -255,6 +258,7 @@ let opts = lsGet('cmv.opts', {dedIcms:true, dedIpi:true, pisCofRazao:true, tol:1
 let overrides = {};
 const manual = {ei:{}, ajuste:{}, eiTipo:{}};
 let aba = 'lancar', mesSel = null, uid = 0;
+const abertos = new Set();   // linhas abertas na tabela "CMV a lançar"
 
 /* ---------- carga de arquivos ---------- */
 const picker = document.getElementById('picker');
@@ -272,17 +276,26 @@ document.querySelectorAll('.slot').forEach(slot => {
 });
 picker.addEventListener('change', () => { addFiles([...picker.files], pickKind); picker.value = ''; });
 
+const repetidos = [];
+function hashBytes(b){
+  // FNV-1a de 32 bits: basta para reconhecer o mesmo arquivo
+  let h = 0x811c9dc5;
+  for (let i = 0; i < b.length; i++){ h ^= b[i]; h = Math.imul(h, 0x01000193); }
+  return (h >>> 0).toString(16);
+}
 async function addFiles(files, hint){
   for (const f of files){
-    if ([...state.razao, ...state.sped, ...state.inv].some(x => x.name === f.name && x.size === f.size)) continue;
     const buf = await f.arrayBuffer();
+    // o mesmo arquivo baixado duas vezes ("arquivo (1).pdf") entra uma vez só
+    const hash = hashBytes(new Uint8Array(buf));
+    if ([...state.razao, ...state.sped, ...state.inv].some(x => x.hash === hash && x.size === f.size)){ repetidos.push(f.name); renderAll(); continue; }
     const low = f.name.toLowerCase();
     // o tipo é decidido pelo conteúdo, não pelo quadro onde o arquivo caiu
     let k;
     if (low.endsWith('.pdf')) k = 'inv';
     else if (/\.(xlsx|xls|csv)$/.test(low)) k = 'razao';
     else k = new TextDecoder('latin1').decode(new Uint8Array(buf, 0, Math.min(10, buf.byteLength))).startsWith('|0000|') ? 'sped' : 'razao';
-    const item = {id: ++uid, name: f.name, size: f.size, loading: true};
+    const item = {id: ++uid, name: f.name, size: f.size, hash, loading: true};
     state[k].push(item);
     renderSlots();
     try {
@@ -543,20 +556,26 @@ function cmvALancar(T){
       let efAnt = null;
       if (invAnt && (!t || invAnt.usados.some(i => i.tipo === t))) efAnt = somaInv(invAnt, t);
       const tipo = t || 'Total', mov = sum('mov'), lanc = sum('lanc'), siRazao = sum('si');
-      // estoque inicial do mês: 1º mês = digitado (ou razão); demais = inventário do mês anterior (ou razão)
-      let siBase = siRazao, siFonte = 'saldo inicial do razão';
-      if (ym === meses[0]){ if (manual.eiTipo[tipo] != null){ siBase = manual.eiTipo[tipo]; siFonte = 'digitado'; } }
-      else if (efAnt != null){ siBase = efAnt; siFonte = 'inventário de ' + mesCurto(prevYm(ym)); }
-      const cmvMes = ef != null ? siBase + mov - ef : null;
-      const pendAnt = siRazao - siBase;
+      // movimento do razão por tipo de lançamento; positivos = compras, negativos = deduções
+      const cats = {};
+      cs.forEach(c => Object.entries(c.cats).forEach(([k, x]) => { const a = cats[k] ||= {v:0, n:0}; a.v += x.v; a.n += x.n; }));
+      const cv = k => cats[k] ? cats[k].v : 0;
+      const credIpi = cv('ipi') + cv('icms'), credPisCof = cv('pis') + cv('cofins');
+      const vals = Object.entries(cats).filter(([k]) => !['ipi', 'icms', 'pis', 'cofins'].includes(k)).map(([, x]) => x.v);
+      const compras = vals.filter(v => v > 0).reduce((s, v) => s + v, 0), outrasDed = vals.filter(v => v < 0).reduce((s, v) => s + v, 0);
+      const deducoes = credIpi + credPisCof + outrasDed;
+      // estoque inicial = saldo inicial do razão (no 1º mês pode ser digitado)
+      let ei = siRazao, eiFonte = 'saldo inicial do razão';
+      if (ym === meses[0] && manual.eiTipo[tipo] != null){ ei = manual.eiTipo[tipo]; eiFonte = 'digitado'; }
+      const cmv = ef != null ? ei + mov - ef : null;
       const principal = cs.slice().sort((a, b) => Math.abs(b.antes) - Math.abs(a.antes))[0];
       const contra = [...new Set(cs.flatMap(x => x.contra))];
-      return {tipo, primeiro:ym === meses[0], contas:cs, siRazao, siBase, siFonte, mov, ef, cmvMes, lanc, difMes:cmvMes != null ? cmvMes - lanc : null, pendAnt,
-        total:cmvMes != null ? cmvMes - lanc + pendAnt : null, antesRazao:siRazao + mov,
+      return {tipo, contas:cs, cats, siRazao, ei, eiFonte, compras, credIpi, credPisCof, outrasDed, deducoes, mov, ef, cmv, lanc, falta:cmv != null ? cmv - lanc : null,
+        difInvAnt:efAnt != null ? siRazao - efAnt : null, efAnt,
         invs:inv ? inv.usados.filter(i => !t || i.tipo === t) : [], contaCred:principal ? principal.conta : '', contaDeb:contra.join(', ') || contraGeral};
     });
     const tot = k => grupos.some(g => g[k] == null) ? null : grupos.reduce((s, g) => s + g[k], 0);
-    return {ym, grupos, ...Object.fromEntries(['siRazao', 'siBase', 'mov', 'ef', 'cmvMes', 'lanc', 'difMes', 'pendAnt', 'total'].map(k => [k, tot(k)]))};
+    return {ym, grupos, ...Object.fromEntries(['siRazao', 'ei', 'compras', 'credIpi', 'credPisCof', 'outrasDed', 'deducoes', 'mov', 'ef', 'cmv', 'lanc', 'falta'].map(k => [k, tot(k)]))};
   });
 }
 
@@ -671,6 +690,9 @@ function renderAll(){
   const T = calcularTudo();
   const out = document.getElementById('out');
   const c = T.cliente;
+  const rep = document.getElementById('repetidos');
+  rep.hidden = !repetidos.length;
+  rep.innerHTML = repetidos.length ? `${repetidos.length} arquivo${repetidos.length > 1 ? 's' : ''} repetido${repetidos.length > 1 ? 's' : ''} ignorado${repetidos.length > 1 ? 's' : ''} (mesmo conteúdo de outro já carregado): ${repetidos.map(esc).join(', ')}` : '';
   document.getElementById('cliente').innerHTML = c
     ? `<b>${esc(c.nome)}</b> · CNPJ ${esc(cnpjFmt(c.cnpj))} · IE ${esc(c.ie)} · ${esc(c.uf)}`
     : 'Carregue o razão, os SPEDs e os inventários. Os arquivos são lidos só neste computador.';
@@ -720,28 +742,27 @@ function eiCard(T){
 }
 
 /* memória de cálculo do CMV a lançar: linhas [descrição, valor, nível] */
-function memoria(m, r){
+function memoriaGrupo(m, g){
   const L = [];
-  m.grupos.forEach(g => {
-    L.push([`Estoque ${g.tipo === 'Total' ? 'total' : g.tipo}${g.contas.length ? ' — contas ' + g.contas.map(c => c.conta + ' ' + c.nome).join('; ') : ''}`, null, 'h']);
-    L.push([`Estoque inicial (${g.siFonte})`, g.siBase, 'a']);
-    const cats = {};
-    g.contas.forEach(c => Object.entries(c.cats).forEach(([k, x]) => { const a = cats[k] ||= {v:0, n:0}; a.v += x.v; a.n += x.n; }));
-    Object.keys(RCATS).forEach(k => { const x = cats[k]; if (x && Math.abs(x.v) > 0.004) L.push([`${x.v >= 0 ? '(+)' : '(−)'} ${RCATS[k]} no razão (${x.n} lançamento${x.n > 1 ? 's' : ''})`, x.v, 'a']); });
-    if (g.invs.length) g.invs.forEach(i => L.push([`(−) Estoque final — inventário ${i.tipo}: ${i.name}${i.data ? ' (' + i.data + ')' : ''}`, i.valor != null ? -i.valor : null, 'a']));
-    else L.push(['(−) Estoque final: inventário não carregado', null, 'a']);
-    L.push(['= CMV do mês', g.cmvMes, 't']);
-    g.contas.forEach(c => c.cmvLancs.forEach(l => L.push([`(−) Já lançado em ${l.data} na conta ${c.conta}: ${l.hist}`, -(l.cred - l.deb), 'a'])));
-    if (!g.contas.some(c => c.cmvLancs.length)) L.push(['(−) Já lançado no razão: nenhum lançamento de CMV no mês', 0, 'a']);
-    L.push(['= Diferença do mês', g.difMes, 't']);
-    if (Math.abs(g.pendAnt) > opts.tol){
-      L.push([`Saldo inicial do razão${g.contas.length ? ' (contas ' + g.contas.map(c => c.conta).join(', ') + ')' : ''}`, g.siRazao, 'a']);
-      L.push([`(−) Estoque inicial usado (${g.siFonte})`, -g.siBase, 'a']);
-      L.push([g.primeiro ?'= Diferença de abertura ainda não ajustada' : '= Pendência de meses anteriores ainda não ajustada', g.pendAnt, 't']);
-    }
-    const t = g.total;
-    L.push([t == null ? '= Total a lançar' : Math.abs(t) <= opts.tol ? '= Total a lançar: nada (razão fecha com o inventário)' : t > 0 ? `= Total a lançar: D ${g.contaDeb || 'CMV'} / C ${g.contaCred}` : `= Total a estornar: D ${g.contaCred} / C ${g.contaDeb || 'CMV'}`, t, 't']);
-  });
+  L.push([`Estoque ${g.tipo === 'Total' ? 'total' : g.tipo}`, null, 'h']);
+  L.push([`Estoque inicial (${g.eiFonte})`, g.ei, 'a']);
+  Object.keys(RCATS).forEach(k => { const x = g.cats[k]; if (x && x.v > 0.004) L.push([`(+) ${RCATS[k]} no razão (${x.n} lançamento${x.n > 1 ? 's' : ''})`, x.v, 'a']); });
+  Object.keys(RCATS).forEach(k => { const x = g.cats[k]; if (x && x.v < -0.004) L.push([`(−) ${RCATS[k]} no razão (${x.n} lançamento${x.n > 1 ? 's' : ''})`, x.v, 'a']); });
+  if (g.invs.length) g.invs.forEach(i => L.push([`(−) Inventário final ${i.tipo}: ${i.name}${i.data ? ' (' + i.data + ')' : ''}`, i.valor != null ? -i.valor : null, 'a']));
+  else L.push(['(−) Inventário final: não carregado', null, 'a']);
+  L.push(['= CMV a lançar', g.cmv, 't']);
+  g.contas.forEach(c => c.cmvLancs.forEach(l => L.push([`Já lançado no Domínio em ${l.data}: ${l.hist}`, l.cred - l.deb, 'a'])));
+  if (!g.contas.some(c => c.cmvLancs.length)) L.push(['Já lançado no Domínio: nenhum lançamento de CMV no mês', 0, 'a']);
+  const f = g.falta;
+  L.push([f == null ? 'Falta lançar no Domínio' : Math.abs(f) <= opts.tol ? 'Falta lançar no Domínio: nada, o razão fecha com o inventário' : f > 0 ? 'Falta lançar no Domínio' : 'Lançado a mais: estornar no Domínio', f, 't']);
+  if (g.eiFonte === 'digitado' && Math.abs(g.ei - g.siRazao) > opts.tol)
+    L.push([`Obs.: o estoque inicial digitado difere do saldo do razão (${fmt(g.siRazao)}) em ${fmt(g.ei - g.siRazao)}. Lançando esse CMV, o razão não fecha com o inventário até ajustar essa diferença.`, null, 'o']);
+  if (g.difInvAnt != null && Math.abs(g.difInvAnt) > opts.tol)
+    L.push([`Obs.: o saldo inicial do razão difere do inventário de ${mesCurto(prevYm(m.ym))} (${fmt(g.efAnt)}) em ${fmt(g.difInvAnt)}: sobra de meses anteriores que entra no CMV deste mês.`, null, 'o']);
+  return L;
+}
+function memoria(m, r){
+  const L = m.grupos.flatMap(g => memoriaGrupo(m, g));
   if (r && r.sped){
     L.push(['Conferência pelo SPED (estoque inicial + compras − estoque final)', null, 'h']);
     L.push([`Estoque inicial (${r.eiFonte || 'não informado'})`, r.ei, 'a']);
@@ -754,16 +775,31 @@ function memoria(m, r){
     if (r.ajuste) L.push(['(±) Ajuste manual', r.ajuste, 'a']);
     L.push(['(−) Estoque final (inventário)', r.ef != null ? -r.ef : null, 'a']);
     L.push(['= CMV apurado pelo SPED', r.cmv, 't']);
-    if (r.cmv != null && m.cmvMes != null) L.push(['Diferença entre o CMV do mês (razão) e o CMV apurado pelo SPED', m.cmvMes - r.cmv, 'a']);
+    if (r.cmv != null && m.cmv != null) L.push(['Diferença entre o CMV a lançar (razão) e o CMV apurado pelo SPED', m.cmv - r.cmv, 'a']);
   }
   return L;
 }
+const linhasMemoria = L => L.map(([d, v, n]) => n === 'h' ? `<tr><td colspan="2" style="padding-top:14px"><b>${esc(d)}</b></td></tr>`
+  : n === 'o' ? `<tr><td colspan="2" class="src">${esc(d)}</td></tr>`
+  : `<tr${n === 't' ? ' style="font-weight:700"' : ''}><td style="padding-left:${n === 'c' ? 36 : 18}px">${esc(d)}</td>${td(v)}</tr>`).join('');
 function memoriaHTML(m, r){
-  return `<div class="card"><h2>Memória de cálculo — ${mesLabel(m.ym)}</h2><table>
-    ${memoria(m, r).map(([d, v, n]) => n === 'h' ? `<tr><td colspan="2" style="padding-top:14px"><b>${esc(d)}</b></td></tr>`
-      : n === 'o' ? `<tr><td colspan="2" class="src">${esc(d)}</td></tr>`
-      : `<tr${n === 't' ? ' style="font-weight:700"' : ''}><td style="padding-left:${n === 'c' ? 36 : 18}px">${esc(d)}</td>${td(v)}</tr>`).join('')}
-  </table></div>`;
+  return `<div class="card"><h2>Memória de cálculo — ${mesLabel(m.ym)}</h2><table>${linhasMemoria(memoria(m, r))}</table></div>`;
+}
+// painel que abre ao clicar numa linha da tabela "CMV a lançar"
+function detalheLinha(T, m, g){
+  const r = T.res.find(x => x.ym === m.ym);
+  const L = g ? memoriaGrupo(m, g) : memoria(m, r);
+  const geral = [];
+  if (g && r){
+    geral.push(['Valores gerais do mês', null, 'h']);
+    geral.push(['Estoque inicial total', m.ei, 'a'], ['(+) Compras no razão (todas as contas)', m.compras, 'a'], ['(−) Deduções no razão (créditos de impostos, devoluções)', m.deducoes, 'a'],
+      ['(−) Inventário final total', m.ef != null ? -m.ef : null, 'a'], ['= CMV a lançar no mês', m.cmv, 't'], ['Já lançado no mês', m.lanc, 'a']);
+    if (r.sped) geral.push([`Compras no SPED (valor contábil dos CFOPs de compra)`, r.bruto.compra, 'a'], ['CMV apurado pelo SPED (conferência)', r.cmv, 'a']);
+    if (r.notas && (r.notas.soSped.length || r.notas.soRazao.length || r.notas.difs.length))
+      geral.push([`Notas de compra divergentes entre SPED e razão: ${r.notas.soSped.length + r.notas.soRazao.length + r.notas.difs.length} (ver no detalhe do mês)`, null, 'o']);
+  }
+  return `<div style="padding:4px 4px 10px;max-width:900px"><table>${linhasMemoria(L)}${linhasMemoria(geral)}</table>
+    ${r ? `<button data-abremes="${m.ym}" style="margin-top:8px">Abrir o detalhe completo de ${mesLabel(m.ym)}</button>` : ''}</div>`;
 }
 
 function viewLancar(T, editavel){
@@ -771,30 +807,31 @@ function viewLancar(T, editavel){
   if (!L.length) return '<div class="card empty">Carregue o razão da conta de estoque para calcular quanto lançar de CMV em cada mês.</div>';
   const contas = [...new Map(L.flatMap(m => m.grupos.flatMap(g => g.contas)).map(c => [c.conta, c])).values()];
   const tipos = ['Veículos', 'Peças', 'Estoque'];
-  const sit = v => v == null ? '' : Math.abs(v) <= opts.tol ? ' <span class="status ok">ok</span>' : ` <span class="status bad">${v > 0 ? 'lançar' : 'estornar'}</span>`;
-  const linhaG = (m, g, sub, mostraMes) => `<tr${sub ? '' : ' class="total"'}>
+  const ab = editavel ? abertos : new Set();
+  // situação: compara o CMV a lançar com o que já está no razão
+  // quando a diferença é só a sobra do mês anterior, avisa para não lançar duas vezes
+  const vemDeAntes = (g, m) => g.falta != null && g.lanc && g.difInvAnt != null && Math.abs(g.difInvAnt) > opts.tol && Math.abs(g.falta - g.difInvAnt) <= opts.tol
+    ? `<div class="src">a diferença vem de ${mesCurto(prevYm(m.ym))}</div>` : '';
+  const linhaG = (m, g, total, mostraMes, id) => `<tr class="click${total ? ' total' : ''}" data-det="${id}" title="Clique para ver o cálculo">
     <td>${mostraMes ? `<b>${mesLabel(m.ym)}</b>` : ''}</td>
-    <td>${esc(g.tipo)}${g.contas && g.contas.length ? `<div class="src">${g.contas.map(c => esc(c.conta)).join(', ')}</div>` : ''}</td>
-    <td class="n${g.siBase < -0.004 ? ' neg' : ''}">${fmt(g.siBase)}${g.siFonte ? `<div class="src">${esc(g.siFonte)}</div>` : ''}</td>
-    ${td(g.mov)}${td(g.ef != null ? -g.ef : null)}${td(g.cmvMes, 'b')}${td(g.lanc)}
-    <td class="n">${fmt(g.difMes)}${sit(g.difMes)}</td>${td(g.pendAnt)}
-    <td class="n"><b>${fmt(g.total)}</b>${sit(g.total)}</td>
-    <td class="src">${g.total != null && Math.abs(g.total) > opts.tol && g.contaCred ? (g.total > 0 ? `D ${esc(g.contaDeb || 'CMV')} / C ${esc(g.contaCred)}` : `D ${esc(g.contaCred)} / C ${esc(g.contaDeb || 'CMV')}`) : ''}</td></tr>`;
+    <td>${ab.has(id) ? '▾' : '▸'} ${esc(g.tipo)}</td>
+    ${td(g.ei)}${td(g.compras)}${td(g.credIpi)}${td(g.credPisCof)}${td(g.outrasDed)}${td(g.ef != null ? -g.ef : null)}
+    ${celulaCmv(g).replace('</td>', vemDeAntes(g, m) + '</td>')}</tr>
+    ${ab.has(id) ? `<tr><td></td><td colspan="8" style="background:var(--bg)">${detalheLinha(T, m, total && m.grupos.length > 1 ? null : g)}</td></tr>` : ''}`;
   const soma = k => L.every(m => m[k] != null) ? L.reduce((s, m) => s + m[k], 0) : null;
   return `<div class="card">
-    <h2>Quanto lançar de CMV em cada mês <small>estoque inicial + movimento do razão − inventário final</small></h2>
+    <h2>Quanto lançar de CMV em cada mês <small>clique numa linha para ver o cálculo</small></h2>
     <div class="scroll"><table>
-      <tr><th>Mês</th><th>Estoque / contas</th><th class="n">Estoque inicial</th><th class="n">(±) Movimento sem CMV</th><th class="n">(−) Inventário final</th>
-        <th class="n">= CMV do mês</th><th class="n">Já lançado</th><th class="n">Diferença do mês</th><th class="n">Pendência anterior</th><th class="n">Total a lançar</th><th>Lançamento</th></tr>
+      <tr><th>Mês</th><th>Estoque</th><th class="n">Estoque inicial</th><th class="n">(+) Compras</th><th class="n">(−) Crédito IPI</th><th class="n">(−) Crédito PIS/COFINS</th>
+        <th class="n">(−) Devoluções e outros</th><th class="n">(−) Inventário final</th><th class="n cmvcol">= CMV</th></tr>
       ${L.map(m => m.grupos.length > 1
-        ? m.grupos.map((g, i) => linhaG(m, g, true, i === 0)).join('') + linhaG(m, {...m, tipo:'Total do mês', contas:[], siFonte:'', contaCred:''}, false, false)
-        : linhaG(m, m.grupos[0], false, true)).join('')}
-      <tr class="total"><td>Acumulado</td><td></td><td></td>${td(soma('mov'))}<td></td>${td(soma('cmvMes'))}${td(soma('lanc'))}${td(soma('difMes'))}<td></td><td></td><td></td></tr>
+        ? m.grupos.map((g, i) => linhaG(m, g, false, i === 0, m.ym + ':' + g.tipo)).join('') + linhaG(m, {...m, tipo:'Total do mês', contas:[]}, true, false, m.ym + ':total')
+        : linhaG(m, m.grupos[0], true, true, m.ym + ':' + m.grupos[0].tipo)).join('')}
+      <tr class="total"><td>Acumulado</td><td></td><td></td>${td(soma('compras'))}${td(soma('credIpi'))}${td(soma('credPisCof'))}${td(soma('outrasDed'))}<td></td>${td(soma('cmv'), 'cmvcol')}</tr>
     </table></div>
-    <div class="src" style="margin-top:6px">Estoque inicial: no 1º mês, o valor digitado (ou o saldo do razão); nos demais, o inventário do mês anterior. Movimento sem CMV = compras, créditos de IPI/PIS/COFINS, devoluções e demais lançamentos do mês no razão.
-      <b>Diferença do mês</b> = CMV do mês − já lançado. <b>Pendência anterior</b> = saldo inicial do razão − estoque inicial usado (o que não foi ajustado antes).
-      <b>Total a lançar</b> = o que lançar agora para o razão fechar com o inventário. Positivo é complemento de CMV; negativo é estorno. O débito do lançamento é a contrapartida que o razão já usa para o CMV.</div>
-    ${L.some(m => m.grupos.length > 1 && m.grupos.some(g => g.cmvMes != null && g.cmvMes < -opts.tol)) ? `<div class="card avisos" style="margin:10px 0 0">Há mês com CMV negativo em um tipo de estoque (${L.flatMap(m => m.grupos.filter(g => g.cmvMes != null && g.cmvMes < -opts.tol).map(g => g.tipo + ' ' + mesCurto(m.ym))).join(', ')}). Normalmente isso indica compras desse estoque lançadas na conta do outro. Confira no razão antes de lançar por tipo. O total do mês continua valendo.</div>` : ''}
+    <div class="src" style="margin-top:6px">CMV a lançar = estoque inicial (saldo do razão; no 1º mês pode ser digitado) + compras − créditos de IPI − créditos de PIS/COFINS − devoluções e outros − inventário final.
+      Todos os valores vêm do razão, em cada conta de estoque: os créditos de PIS/COFINS reduzem o CMV da conta onde foram lançados. O próprio lançamento de CMV não entra na conta.</div>
+    ${L.some(m => m.grupos.length > 1 && m.grupos.some(g => g.cmv != null && g.cmv < -opts.tol)) ? `<div class="card avisos" style="margin:10px 0 0">Há mês com CMV negativo em um tipo de estoque (${L.flatMap(m => m.grupos.filter(g => g.cmv != null && g.cmv < -opts.tol).map(g => g.tipo + ' ' + mesCurto(m.ym))).join(', ')}). Normalmente isso indica compras desse estoque lançadas na conta do outro. Confira no razão antes de lançar por tipo. O total do mês continua valendo.</div>` : ''}
     ${editavel && contas.length > 1 ? `<details><summary>Qual inventário corresponde a cada conta</summary><div class="map">
       ${contas.map(c => `<label>${esc(c.conta)} ${esc(c.nome)}<select data-conta="${esc(c.conta)}">${tipos.map(t => `<option ${t === c.tipo ? 'selected' : ''}>${t}</option>`).join('')}</select></label>`).join('')}
     </div><div class="src">Quando o inventário do mês tem os mesmos tipos das contas, o CMV é calculado conta a conta. Se não tiver, é calculado pelo total.</div></details>` : ''}
@@ -959,6 +996,10 @@ function bindOut(T){
   const on = (id, ev, fn) => { const el = document.getElementById(id); if (el) el.addEventListener(ev, fn); };
   document.querySelectorAll('[data-aba]').forEach(b => b.addEventListener('click', () => { aba = b.dataset.aba; renderAll(); }));
   document.querySelectorAll('tr[data-mes]').forEach(tr => tr.addEventListener('click', () => { mesSel = tr.dataset.mes; aba = 'mes'; renderAll(); }));
+  document.querySelectorAll('tr[data-det]').forEach(tr => tr.addEventListener('click', () => {
+    const id = tr.dataset.det; if (abertos.has(id)) abertos.delete(id); else abertos.add(id); renderAll();
+  }));
+  document.querySelectorAll('[data-abremes]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); mesSel = b.dataset.abremes; aba = 'mes'; renderAll(); window.scrollTo(0, 0); }));
   on('mesSel', 'change', e => { mesSel = e.target.value; aba = 'mes'; renderAll(); });
   const salvaEi = () => { if (T.cliente) lsSet('cmv.ei.' + T.cliente.cnpj, {ei:manual.ei, eiTipo:manual.eiTipo}); };
   on('eiManual', 'change', e => { if (e.target.value.trim()) manual.ei[mesSel] = numBR(e.target.value); else delete manual.ei[mesSel]; salvaEi(); renderAll(); });
@@ -1005,7 +1046,7 @@ document.querySelector('.slots').addEventListener('change', e => {
   renderAll();
 });
 document.getElementById('bClear').addEventListener('click', () => {
-  state.razao = []; state.sped = []; state.inv = []; manual.ei = {}; manual.ajuste = {}; manual.eiTipo = {}; mesSel = null; renderAll();
+  state.razao = []; state.sped = []; state.inv = []; repetidos.length = 0; manual.ei = {}; manual.ajuste = {}; manual.eiTipo = {}; mesSel = null; renderAll();
 });
 
 /* ---------- relatórios ---------- */
@@ -1014,18 +1055,66 @@ function cabecalho(T, titulo){
   return `<h1>${esc(titulo)}</h1><div class="cab">${esc(c.nome || '')}${c.cnpj ? ' · CNPJ ' + esc(cnpjFmt(c.cnpj)) : ''}${c.ie ? ' · IE ' + esc(c.ie) : ''}<br>
     Gerado em ${new Date().toLocaleString('pt-BR')}</div>`;
 }
-function relGeral(T){
-  const rs = T.res;
-  return `<div class="rep">${cabecalho(T, `CMV e estoque — ${mesLabel(rs[0].ym)} a ${mesLabel(rs[rs.length - 1].ym)}`)}
-    ${viewLancar(T, false)}
-    ${viewGeral(T).replace(/<div class="card">\s*<h2>Critérios[\s\S]*$/, '').replace(/<small>clique em um mês[^<]*<\/small>/, '')}
-    <h2>Critérios</h2><div>Compras do SPED pelo valor contábil dos CFOPs de compra${opts.dedIpi ? ', sem o IPI recuperável' : ''}${opts.dedIcms ? ', sem o ICMS recuperável' : ''}${opts.pisCofRazao ? ', sem os créditos de PIS/COFINS lançados no razão' : ''}, menos as devoluções de compra. Estoque final pelo total dos inventários. Tolerância das conferências: R$ ${fmt(opts.tol)}.</div>
-    ${rs.map(r => `<div class="pb"></div><h2>${mesLabel(r.ym)}</h2>${viewMes(r, false, T)}`).join('')}
+/* relatório: movimentação da conta de estoque mês a mês, no formato do razão
+   estoque inicial + entradas − deduções − CMV = estoque final */
+function linhasMovimento(T, yms){
+  const out = [], quer = ym => !yms || yms.includes(ym);
+  if (T.lancar.length){
+    T.lancar.filter(m => quer(m.ym)).forEach(m => {
+      const gs = m.grupos.length > 1 ? [...m.grupos, {...m, tipo:'Total do mês', total:true}] : [{...m.grupos[0], total:true, unico:true}];
+      gs.forEach((g, i) => out.push({ym:m.ym, primeira:i === 0, tipo:g.tipo === 'Total' ? 'Estoque total' : g.tipo, total:!!g.total, unico:!!g.unico,
+        ei:g.ei, entradas:g.compras, ipi:-g.credIpi, piscof:-g.credPisCof, outros:-g.outrasDed, ded:-g.deducoes, cmv:g.cmv, ef:g.ef, lanc:g.lanc, falta:g.falta}));
+    });
+  } else {
+    // sem razão: usa o SPED (compras pelo valor contábil, deduções = impostos recuperáveis e devoluções)
+    T.res.filter(r => quer(r.ym) && r.sped).forEach(r => {
+      const ipi = (opts.dedIpi ? r.bruto.ipi : 0) + (opts.dedIcms ? r.bruto.icms : 0), outros = r.tot.devcomp + r.tot.outsai - r.ajuste;
+      out.push({ym:r.ym, primeira:true, tipo:'Estoque total', total:true, unico:true, ei:r.ei, entradas:r.bruto.compra + r.tot.frete + r.tot.outent,
+        ipi, piscof:r.piscof, outros, ded:ipi + r.piscof + outros, cmv:r.cmv, ef:r.ef, lanc:r.cmvCont, falta:r.cmv != null && r.cmvCont != null ? r.cmv - r.cmvCont : null});
+    });
+  }
+  return out;
+}
+// situação do CMV no Domínio (razão): já lançado, a lançar, a complementar ou a estornar
+function situacaoCmv(x){
+  if (x.falta == null) return {txt:'sem inventário final', cls:'na'};
+  if (Math.abs(x.falta) <= opts.tol) return {txt:'✓ já lançado no Domínio', cls:'ok'};
+  // vermelho só quando o mês não tem CMV lançado no Domínio
+  if (!x.lanc || Math.abs(x.lanc) <= opts.tol) return {txt:'não lançado no Domínio', cls:'bad'};
+  return {txt:`já lançado ${fmt(x.lanc)} · ${x.falta > 0 ? 'lançar mais' : 'estornar'} ${fmt(Math.abs(x.falta))} no Domínio`, cls:'warn'};
+}
+const celulaCmv = x => { const s = situacaoCmv(x);
+  return `<td class="n cmvcol"><b style="font-size:15px">${fmt(x.cmv)}</b><div><span class="status ${s.cls}">${esc(s.txt)}</span></div></td>`; };
+function relMovimento(T, yms, titulo){
+  const rows = linhasMovimento(T, yms);
+  const linha = r => {
+    const ded = [r.ipi && 'crédito IPI ' + fmt(r.ipi), r.piscof && 'crédito PIS/COFINS ' + fmt(r.piscof), r.outros && 'devoluções e outros ' + fmt(r.outros)].filter(Boolean).join(' · ');
+    return `<tr${r.total && !r.unico ? ' class="total"' : ''}>
+      <td>${r.primeira ? `<b>${mesLabel(r.ym)}</b>` : ''}</td><td>${esc(r.tipo)}</td>
+      ${td(r.ei)}${td(r.entradas)}<td class="n">${fmt(r.ded)}${ded && !(r.total && !r.unico) ? `<div class="src">${ded}</div>` : ''}</td>
+      ${celulaCmv(r)}${td(r.ef)}</tr>`;
+  };
+  const corpo = rows.map(linha).join('');
+  return `<div class="rep">${cabecalho(T, titulo)}
+    <table>
+      <tr><th>Mês</th><th>Estoque</th><th class="n">Estoque inicial</th><th class="n">(+) Entradas</th><th class="n">(−) Deduções</th><th class="n cmvcol">(−) CMV</th><th class="n">(=) Estoque final</th></tr>
+      ${corpo}
+    </table>
+    <h2>Como ler</h2>
+    <div><b>Estoque inicial:</b> saldo da conta de estoque no começo do mês, conforme o razão${T.lancar.length && T.lancar[0].grupos.some(g => g.eiFonte === 'digitado') ? ' (no primeiro mês, o valor informado)' : ''}.</div>
+    <div><b>(+) Entradas:</b> compras e demais lançamentos a débito na conta de estoque.</div>
+    <div><b>(−) Deduções:</b> créditos de IPI, PIS e COFINS sobre as compras e devoluções de compra, lançados a crédito na conta de estoque.</div>
+    <div><b>(−) CMV:</b> custo das mercadorias vendidas no mês. É o valor que faz o estoque final da conta ficar igual ao inventário. A marcação embaixo mostra se ele já está lançado no Domínio ou quanto falta lançar.</div>
+    <div><b>(=) Estoque final:</b> total dos inventários do último dia do mês.</div>
+    <div style="margin-top:6px"><b>Conta:</b> estoque inicial + entradas − deduções − CMV = estoque final.</div>
   </div>`;
 }
+function relGeral(T){
+  const ms = (T.lancar.length ? T.lancar : T.res).map(x => x.ym);
+  return relMovimento(T, null, `CMV e estoque — ${mesLabel(ms[0])} a ${mesLabel(ms[ms.length - 1])}`);
+}
 function relMes(T, ym){
-  const L = T.lancar.filter(m => m.ym === ym);
-  return `<div class="rep">${cabecalho(T, 'CMV e estoque — ' + mesLabel(ym))}${L.length ? viewLancar({...T, lancar:L}, false) : ''}${viewMes(T.res.find(r => r.ym === ym), false, T)}</div>`;
+  return relMovimento(T, [ym], 'CMV e estoque — ' + mesLabel(ym));
 }
 /* salvar arquivos: no claude.ai usa o recurso de downloads; aberto localmente, baixa direto */
 const emArtifact = !!(window.claude && typeof window.claude.use === 'function');
@@ -1070,12 +1159,6 @@ function imprimir(html, nome){
   setTimeout(() => window.print(), 50);
 }
 
-function linhasApuracao(r){
-  return [['Estoque inicial (' + (r.eiFonte || 'não informado') + ')', r.ei], ['(+) Compras', r.tot.compra], ['(+) Fretes sobre compras', r.tot.frete],
-    ['(+) Outras entradas', r.tot.outent], ['(-) Devoluções de compras', -r.tot.devcomp], ['(-) Outras saídas', -r.tot.outsai],
-    ['(-) Créditos de PIS/COFINS (razão)', -r.piscof], ['(±) Ajuste manual', r.ajuste], ['(-) Estoque final (inventário)', r.ef != null ? -r.ef : null],
-    ['= CMV apurado', r.cmv], ['CMV contabilizado (razão)', r.cmvCont]];
-}
 function sheet(wb, nome, aoa, cols){
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols'] = cols.map(w => ({wch:w}));
@@ -1085,69 +1168,28 @@ function sheet(wb, nome, aoa, cols){
 const cabXls = T => T.cliente ? [[T.cliente.nome], ['CNPJ ' + cnpjFmt(T.cliente.cnpj)], []] : [];
 const nArq = (T, s) => ('CMV ' + (T.cliente ? T.cliente.nome.split(' ').slice(0, 2).join(' ') + ' ' : '') + s).replace(/[\\/:*?"<>|]/g, '') + '.xlsx';
 const rnd = v => v == null ? null : r2(v);
-function abaCfops(rs){
-  return [['Mês', 'Operação', 'CFOP', 'Descrição', 'Tratamento', 'Docs', 'Valor contábil', 'IPI', 'ICMS', 'ICMS-ST', 'Custo considerado'],
-    ...rs.filter(r => r.sped).flatMap(r => r.sped.linhas.map(a => { const c = catDe(a.cfop);
-      return [mesLabel(r.ym), a.ind === '0' ? 'Entrada' : 'Saída', a.cfop, DESCR[a.cfop] || '', CATS[c].label, a.n, rnd(a.opr), rnd(a.ipi), rnd(a.icms), rnd(a.st), CATS[c].sinal ? rnd(CATS[c].sinal * custoLinha(a)) : null]; }))];
-}
-function abaConc(rs){
-  return [['Mês', 'Conferência', 'Fiscal / inventário', 'Razão', 'Diferença', 'Situação'],
-    ...rs.flatMap(r => r.conc.map(c => [mesLabel(r.ym), c.nome, rnd(c.a), rnd(c.b), rnd(c.d), c.d == null ? 'sem dados' : Math.abs(c.d) <= opts.tol ? 'confere' : 'diferença']))];
-}
-function abaNotas(rs){
-  const out = [['Mês', 'Situação', 'Nota', 'Fornecedor / histórico', 'Data', 'Valor SPED', 'Valor razão']];
-  rs.forEach(r => { if (!r.notas) return; const m = mesLabel(r.ym);
-    r.notas.soSped.forEach(n => out.push([m, 'Só no SPED', n.num, n.part, n.data.replace(/^(\d\d)(\d\d)(\d{4})$/, '$1/$2/$3'), rnd(n.v), null]));
-    r.notas.soRazao.forEach(n => out.push([m, 'Só no razão', n.num, n.hist, n.data, null, rnd(n.v)]));
-    r.notas.difs.forEach(n => out.push([m, 'Valor diferente', n.num, n.part, '', rnd(n.v), rnd(n.vr)])); });
-  return out;
-}
-function abaLancar(L){
-  const out = [['Mês', 'Estoque', 'Contas', 'Estoque inicial', 'Origem do estoque inicial', 'Movimento sem CMV', 'Inventário final', 'CMV do mês', 'Já lançado', 'Diferença do mês', 'Saldo inicial razão', 'Pendência anterior', 'Total a lançar', 'Débito', 'Crédito']];
-  L.forEach(m => {
-    m.grupos.forEach(g => out.push([mesLabel(m.ym), g.tipo, g.contas.map(c => c.conta).join(', '), rnd(g.siBase), g.siFonte, rnd(g.mov), rnd(g.ef), rnd(g.cmvMes), rnd(g.lanc), rnd(g.difMes), rnd(g.siRazao), rnd(g.pendAnt), rnd(g.total),
-      g.total > 0 ? g.contaDeb : g.contaCred, g.total > 0 ? g.contaCred : g.contaDeb]));
-    if (m.grupos.length > 1) out.push([mesLabel(m.ym), 'Total do mês', '', rnd(m.siBase), '', rnd(m.mov), rnd(m.ef), rnd(m.cmvMes), rnd(m.lanc), rnd(m.difMes), rnd(m.siRazao), rnd(m.pendAnt), rnd(m.total), '', '']);
-  });
-  return out;
-}
-function abaMemoria(T, L){
-  const out = [['Mês', 'Memória de cálculo', 'Valor']];
-  L.forEach(m => { memoria(m, T.res.find(r => r.ym === m.ym)).forEach(([d, v, n]) => out.push([mesLabel(m.ym), (n === 'a' ? '   ' : n === 'c' ? '      ' : '') + d, rnd(v)])); out.push([]); });
-  return out;
+function abaMovimento(T, yms, titulo){
+  const rows = linhasMovimento(T, yms);
+  return [...cabXls(T), [titulo], [],
+    ['Mês', 'Estoque', 'Estoque inicial', '(+) Entradas', '(−) Crédito IPI', '(−) Crédito PIS/COFINS', '(−) Devoluções e outros', '(−) Total de deduções', '(−) CMV', 'Situação no Domínio', '(=) Estoque final', 'CMV já lançado no Domínio', 'Diferença a lançar'],
+    ...rows.map(r => [r.primeira ? mesLabel(r.ym) : '', r.tipo, rnd(r.ei), rnd(r.entradas), rnd(r.ipi), rnd(r.piscof), rnd(r.outros), rnd(r.ded), rnd(r.cmv), situacaoCmv(r).txt, rnd(r.ef), rnd(r.lanc), rnd(r.falta)]),
+    [],
+    ['Como ler'],
+    ['Estoque inicial: saldo da conta de estoque no começo do mês, conforme o razão.'],
+    ['(+) Entradas: compras e demais lançamentos a débito na conta de estoque.'],
+    ['(−) Deduções: créditos de IPI, PIS e COFINS sobre as compras e devoluções de compra, lançados a crédito na conta de estoque.'],
+    ['(−) CMV: custo das mercadorias vendidas no mês; é o valor que faz o estoque final da conta ficar igual ao inventário.'],
+    ['(=) Estoque final: total dos inventários do último dia do mês.'],
+    ['Conta: estoque inicial + entradas − deduções − CMV = estoque final.']];
 }
 function excelGeral(T){
-  const wb = XLSX.utils.book_new(), rs = T.res;
-  if (T.lancar.length){
-    sheet(wb, 'CMV a lançar', [...cabXls(T), ...abaLancar(T.lancar)], [14, 10, 20, 16, 16, 16, 16, 16, 16, 16, 8, 10]);
-    sheet(wb, 'Memória de cálculo', abaMemoria(T, T.lancar), [14, 90, 18]);
-  }
-  sheet(wb, 'Mês a mês', [...cabXls(T), ['Mês', 'Estoque inicial', 'Origem do estoque inicial', 'Compras', 'Fretes', 'Outras entradas', 'Devoluções de compra', 'Outras saídas', 'Créditos PIS/COFINS', 'Ajuste', 'Compras líquidas', 'Estoque final', 'CMV apurado', 'CMV contabilizado', 'Diferença CMV', 'Saldo final razão', 'Diferença estoque', 'Vendas s/ IPI e ST'],
-    ...rs.map(r => [mesLabel(r.ym), rnd(r.ei), r.eiFonte, rnd(r.tot.compra), rnd(r.tot.frete), rnd(r.tot.outent), rnd(-r.tot.devcomp), rnd(-r.tot.outsai), rnd(-r.piscof), rnd(r.ajuste),
-      rnd(r.comprasLiq), rnd(r.ef), rnd(r.cmv), rnd(r.cmvCont), r.cmv != null && r.cmvCont != null ? rnd(r.cmvCont - r.cmv) : null,
-      r.rz && r.rz.coberto ? rnd(r.rz.sf) : null, r.rz && r.rz.coberto && r.ef != null ? rnd(r.rz.sf - r.ef) : null, rnd(r.vendas)])],
-    [12, 16, 22, 16, 12, 14, 16, 12, 16, 12, 16, 16, 16, 16, 14, 16, 14, 16]);
-  const meses = Object.keys(T.inv).sort(), tipos = [...new Set(meses.flatMap(m => T.inv[m].usados.map(i => i.tipo)))];
-  sheet(wb, 'Estoque mês a mês', [['Mês', ...tipos, 'Total'], ...meses.map(m => [mesLabel(m), ...tipos.map(t => { const it = T.inv[m].usados.filter(x => x.tipo === t); return it.length ? rnd(it.reduce((s, x) => s + (x.valor || 0), 0)) : null; }), rnd(T.inv[m].valor)])],
-    [14, ...tipos.map(() => 16), 16]);
-  sheet(wb, 'Conferências', abaConc(rs), [12, 58, 18, 18, 14, 10]);
-  sheet(wb, 'Notas divergentes', abaNotas(rs), [12, 16, 10, 50, 11, 16, 16]);
-  sheet(wb, 'CFOPs', abaCfops(rs), [12, 9, 6, 34, 22, 6, 16, 14, 14, 14, 16]);
-  salvarXlsx(wb, nArq(T, mesCurto(rs[0].ym) + ' a ' + mesCurto(rs[rs.length - 1].ym)));
+  const wb = XLSX.utils.book_new(), ms = (T.lancar.length ? T.lancar : T.res).map(x => x.ym);
+  sheet(wb, 'CMV mês a mês', abaMovimento(T, null, `CMV e estoque — ${mesLabel(ms[0])} a ${mesLabel(ms[ms.length - 1])}`), [14, 16, 17, 17, 16, 18, 18, 18, 17, 40, 17, 20, 16]);
+  salvarXlsx(wb, nArq(T, mesCurto(ms[0]) + ' a ' + mesCurto(ms[ms.length - 1])));
 }
 function excelMes(T, ym){
-  const r = T.res.find(x => x.ym === ym), wb = XLSX.utils.book_new();
-  sheet(wb, 'CMV', [...cabXls(T), ['Competência ' + mesLabel(ym)], [], ['Apuração do CMV', 'Valor'], ...linhasApuracao(r).map(([a, b]) => [a, rnd(b)]), [],
-    ['Inventário', 'Tipo', 'Total'], ...(r.inv ? r.inv.usados.map(i => [i.name, i.tipo, rnd(i.valor)]) : [])], [52, 18, 16]);
-  const L = T.lancar.filter(m => m.ym === ym);
-  if (L.length){
-    sheet(wb, 'CMV a lançar', abaLancar(L), [14, 10, 20, 16, 16, 16, 16, 16, 16, 16, 8, 10]);
-    sheet(wb, 'Memória de cálculo', abaMemoria(T, L), [14, 90, 18]);
-  }
-  sheet(wb, 'Conferências', abaConc([r]), [12, 58, 18, 18, 14, 10]);
-  if (r.notas) sheet(wb, 'Notas divergentes', abaNotas([r]), [12, 16, 10, 50, 11, 16, 16]);
-  if (r.rz && r.rz.coberto) sheet(wb, 'Razão', [['Data', 'Tipo', 'Histórico', 'Débito', 'Crédito'], ...r.rz.lancs.map(l => [l.data, RCATS[l.cat], l.hist, rnd(l.deb) || null, rnd(l.cred) || null])], [11, 20, 70, 16, 16]);
-  if (r.sped) sheet(wb, 'CFOPs', abaCfops([r]), [12, 9, 6, 34, 22, 6, 16, 14, 14, 14, 16]);
+  const wb = XLSX.utils.book_new();
+  sheet(wb, 'CMV ' + mesCurto(ym).replace('/', '-'), abaMovimento(T, [ym], 'CMV e estoque — ' + mesLabel(ym)), [14, 16, 17, 17, 16, 18, 18, 18, 17, 40, 17, 20, 16]);
   salvarXlsx(wb, nArq(T, mesCurto(ym)));
 }
 
