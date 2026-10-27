@@ -12,6 +12,14 @@ Os arquivos são lidos só no navegador e nada é enviado para servidor.
 
 Abra `CMV Estoque.html` no navegador e solte os arquivos nos três quadros. A página precisa de internet para carregar o leitor de PDF (pdf.js) e o de Excel (SheetJS).
 
+### Usar como programa no computador
+
+1. Baixe o repositório: botão verde **Code** → **Download ZIP**. Extraia numa pasta fixa, por exemplo `C:\CMV Estoque`.
+2. Abra `CMV Estoque.html` no Google Chrome.
+3. No menu **⋮** do Chrome, vá em **Transmitir, salvar e compartilhar** → **Criar atalho…**. Marque **Abrir como janela** e clique em **Criar**.
+
+O atalho vai para a Área de Trabalho e para o Menu Iniciar e abre a interface numa janela própria, como um programa. Se a pasta mudar de lugar, crie o atalho de novo.
+
 O estoque inicial do primeiro mês pode ser digitado por tipo (veículos e peças). Se o campo ficar em branco, a página usa o saldo do razão.
 
 ## O que a página mostra
