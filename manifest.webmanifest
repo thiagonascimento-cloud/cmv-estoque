@@ -1,0 +1,16 @@
+{
+  "name": "CMV e Estoque",
+  "short_name": "CMV Estoque",
+  "description": "CMV mês a mês a partir do razão de estoque, do SPED ICMS/IPI e dos inventários.",
+  "lang": "pt-BR",
+  "start_url": "./CMV%20Estoque.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F5F6F8",
+  "theme_color": "#1F5FBF",
+  "icons": [
+    { "src": "icones/icone-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icones/icone-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icones/icone-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

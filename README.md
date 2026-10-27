@@ -10,7 +10,11 @@ Os arquivos são lidos só no navegador e nada é enviado para servidor.
 
 ## Como usar
 
-Abra `CMV Estoque.html` no navegador e solte os arquivos nos três quadros. A página precisa de internet para carregar o leitor de PDF (pdf.js) e o de Excel (SheetJS).
+Online: **https://thiagonascimento-cloud.github.io/cmv-estoque/**
+
+Para instalar como aplicativo, abra o endereço no Chrome ou no Edge e clique no ícone **Instalar** no canto direito da barra de endereço (ou menu **⋮** → **Transmitir, salvar e compartilhar** → **Instalar página como app**). O app ganha ícone próprio na Área de Trabalho e no Menu Iniciar e abre numa janela própria.
+
+Também funciona baixando a pasta: abra `CMV Estoque.html` no navegador e solte os arquivos nos três quadros. A página precisa de internet para carregar o leitor de PDF (pdf.js) e o de Excel (SheetJS).
 
 ### Usar como programa no computador
 
