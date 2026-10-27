@@ -748,7 +748,13 @@ function eiCard(T){
         <input type="text" class="money" data-ei="${esc(c.tipo)}" style="width:170px;font-size:15px" value="${manual.eiTipo[c.tipo] != null ? fmt(manual.eiTipo[c.tipo]) : ''}" placeholder="${c.razao != null ? fmt(c.razao) : 'digite o valor'}">
         <span class="src">${manual.eiTipo[c.tipo] != null ? (c.razao != null && Math.abs(c.razao - manual.eiTipo[c.tipo]) > opts.tol ? `razão: ${fmt(c.razao)} (dif. ${fmt(manual.eiTipo[c.tipo] - c.razao)})` : 'digitado') : c.razao != null ? 'usando o razão' : ''}</span></label>`).join('')}
       <div><small class="src">Total usado</small><br><b>${fmt(T.res[0] ? T.res[0].ei : null)}</b></div>
-      ${inv0 ? `<div class="src">Inventário de ${mesLabel(prevYm(m0))}: ${fmt(inv0.valor)}</div>` : ''}
+      ${(() => {
+        if (!inv0) return '';
+        const total = T.lancar[0] && T.lancar[0].ym === m0 ? T.lancar[0].ei : (T.res[0] ? T.res[0].ei : null);
+        const bh = inv0.itens.filter(i => i.origem === 'sped');
+        const rot = bh.length ? `${esc(bh[0].name.replace('Bloco H do SPED', 'Bloco H do SPED de'))} em ${esc(bh[0].data)}` : `Inventário de ${mesLabel(prevYm(m0))}`;
+        return `<div class="src" style="color:var(--warn)">${rot}: ${fmt(inv0.valor)}${total != null && inv0.valor != null ? `<br>diferença ${fmt(total - inv0.valor)} (informativo)` : ''}</div>`;
+      })()}
     </div>
   </div>`;
 }
@@ -824,7 +830,7 @@ function viewLancar(T, editavel){
   const linhaG = (m, g, total, mostraMes, id) => `<tr class="click${total ? ' total' : ''}${m.alt ? ' m-alt' : ''}" data-det="${id}" title="Clique para ver o cálculo">
     <td>${mostraMes ? `<b>${mesLabel(m.ym)}</b>` : ''}</td>
     <td style="white-space:nowrap">${ab.has(id) ? '▾' : '▸'} ${esc(g.tipo)}</td>
-    ${mostraMes && m.blocoH ? td(g.ei).replace('</td>', notaBlocoH(m.blocoH, m.ei) + '</td>') : td(g.ei)}${td(g.compras)}${td(g.credIpi)}${td(g.credPisCof)}${td(g.outrasDed)}${td(g.ef != null ? -g.ef : null)}
+    ${td(g.ei)}${td(g.compras)}${td(g.credIpi)}${td(g.credPisCof)}${td(g.outrasDed)}${td(g.ef != null ? -g.ef : null)}
     ${celulaCmv(g)}</tr>
     ${ab.has(id) ? `<tr${m.alt ? ' class="m-alt"' : ''}><td></td><td colspan="8" style="background:var(--bg)">${detalheLinha(T, m, total && m.grupos.length > 1 ? null : g)}</td></tr>` : ''}`;
   const soma = k => L.every(m => m[k] != null) ? L.reduce((s, m) => s + m[k], 0) : null;
