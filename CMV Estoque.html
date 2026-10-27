@@ -824,7 +824,7 @@ function viewLancar(T, editavel){
   const linhaG = (m, g, total, mostraMes, id) => `<tr class="click${total ? ' total' : ''}${m.alt ? ' m-alt' : ''}" data-det="${id}" title="Clique para ver o cálculo">
     <td>${mostraMes ? `<b>${mesLabel(m.ym)}</b>` : ''}</td>
     <td style="white-space:nowrap">${ab.has(id) ? '▾' : '▸'} ${esc(g.tipo)}</td>
-    ${total && m.blocoH ? td(g.ei).replace('</td>', notaBlocoH(m.blocoH, g.ei) + '</td>') : td(g.ei)}${td(g.compras)}${td(g.credIpi)}${td(g.credPisCof)}${td(g.outrasDed)}${td(g.ef != null ? -g.ef : null)}
+    ${mostraMes && m.blocoH ? td(g.ei).replace('</td>', notaBlocoH(m.blocoH, m.ei) + '</td>') : td(g.ei)}${td(g.compras)}${td(g.credIpi)}${td(g.credPisCof)}${td(g.outrasDed)}${td(g.ef != null ? -g.ef : null)}
     ${celulaCmv(g)}</tr>
     ${ab.has(id) ? `<tr${m.alt ? ' class="m-alt"' : ''}><td></td><td colspan="8" style="background:var(--bg)">${detalheLinha(T, m, total && m.grupos.length > 1 ? null : g)}</td></tr>` : ''}`;
   const soma = k => L.every(m => m[k] != null) ? L.reduce((s, m) => s + m[k], 0) : null;
@@ -834,7 +834,7 @@ function viewLancar(T, editavel){
       <tr><th>Mês</th><th>Estoque</th><th class="n">Estoque inicial</th><th class="n">(+) Compras</th><th class="n">(−) Crédito IPI</th><th class="n">(−) Crédito PIS/COFINS</th>
         <th class="n">(−) Devoluções e outros</th><th class="n">(−) Inventário final</th><th class="n cmvcol">= CMV</th></tr>
       ${L.map((m0, i) => ({...m0, alt:i % 2 === 1})).map(m => m.grupos.length > 1
-        ? m.grupos.map((g, i) => linhaG(m, g, false, i === 0, m.ym + ':' + g.tipo)).join('') + linhaG(m, {...m, tipo:'Total do mês', contas:[]}, true, false, m.ym + ':total')
+        ? m.grupos.map((g, i) => linhaG(m, g, false, i === 0, m.ym + ':' + g.tipo)).join('')
         : linhaG(m, m.grupos[0], true, true, m.ym + ':' + m.grupos[0].tipo)).join('')}
       <tr class="total"><td>Acumulado</td><td></td><td></td>${td(soma('compras'))}${td(soma('credIpi'))}${td(soma('credPisCof'))}${td(soma('outrasDed'))}<td></td>${td(soma('cmv'), 'cmvcol')}</tr>
     </table></div>
@@ -1071,22 +1071,22 @@ function linhasMovimento(T, yms){
   const out = [], quer = ym => !yms || yms.includes(ym);
   if (T.lancar.length){
     T.lancar.filter(m => quer(m.ym)).forEach((m, mi) => {
-      const gs = m.grupos.length > 1 ? [...m.grupos, {...m, tipo:'Total do mês', total:true}] : [{...m.grupos[0], total:true, unico:true}];
-      gs.forEach((g, i) => out.push({ym:m.ym, primeira:i === 0, tipo:g.tipo === 'Total' ? 'Estoque total' : g.tipo, total:!!g.total, unico:!!g.unico, alt:mi % 2 === 1, blocoH:g.total ? m.blocoH : null,
+      const gs = m.grupos.length > 1 ? m.grupos : [{...m.grupos[0], total:true, unico:true}];
+      gs.forEach((g, i) => out.push({ym:m.ym, primeira:i === 0, tipo:g.tipo === 'Total' ? 'Estoque total' : g.tipo, total:!!g.total, unico:!!g.unico, alt:mi % 2 === 1, blocoH:i === 0 ? m.blocoH : null, eiMes:m.ei,
         ei:g.ei, entradas:g.compras, ipi:-g.credIpi, piscof:-g.credPisCof, outros:-g.outrasDed, ded:-g.deducoes, cmv:g.cmv, ef:g.ef, lanc:g.lanc, falta:g.falta}));
     });
   } else {
     // sem razão: usa o SPED (compras pelo valor contábil, deduções = impostos recuperáveis e devoluções)
     T.res.filter(r => quer(r.ym) && r.sped).forEach((r, mi) => {
       const ipi = (opts.dedIpi ? r.bruto.ipi : 0) + (opts.dedIcms ? r.bruto.icms : 0), outros = r.tot.devcomp + r.tot.outsai - r.ajuste;
-      out.push({ym:r.ym, primeira:true, tipo:'Estoque total', total:true, unico:true, alt:mi % 2 === 1, ei:r.ei, entradas:r.bruto.compra + r.tot.frete + r.tot.outent,
+      out.push({ym:r.ym, primeira:true, tipo:'Estoque total', total:true, unico:true, alt:mi % 2 === 1, eiMes:r.ei, ei:r.ei, entradas:r.bruto.compra + r.tot.frete + r.tot.outent,
         ipi, piscof:r.piscof, outros, ded:ipi + r.piscof + outros, cmv:r.cmv, ef:r.ef, lanc:r.cmvCont, falta:r.cmv != null && r.cmvCont != null ? r.cmv - r.cmvCont : null});
     });
   }
   return out;
 }
 // divergência do estoque inicial com o Bloco H do SPED (só informativa)
-const notaBlocoH = (bh, ei) => bh ? `<div class="src" style="color:var(--warn);white-space:normal;max-width:190px;margin-left:auto">${esc(bh.nome.replace('Bloco H do SPED', 'Bloco H do SPED de'))} em ${esc(bh.data)}: ${fmt(bh.valor)}${ei != null ? `<br>diferença ${fmt(ei - bh.valor)}` : ''}</div>` : '';
+const notaBlocoH = (bh, ei) => bh ? `<div class="src" style="color:var(--warn);white-space:normal;max-width:190px;margin-left:auto">${esc(bh.nome.replace('Bloco H do SPED', 'Bloco H do SPED de'))} em ${esc(bh.data)}: ${fmt(bh.valor)}${ei != null ? `<br>estoque inicial total ${fmt(ei)}<br>diferença ${fmt(ei - bh.valor)}` : ''}</div>` : '';
 // situação do CMV no Domínio (razão): já lançado, a lançar, a complementar ou a estornar
 function situacaoCmv(x){
   if (x.falta == null) return {txt:'sem inventário final', cls:'na'};
@@ -1104,7 +1104,7 @@ function relMovimento(T, yms, titulo){
     const ded = [r.ipi && 'crédito IPI ' + fmt(r.ipi), r.piscof && 'crédito PIS/COFINS ' + fmt(r.piscof), r.outros && 'devoluções e outros ' + fmt(r.outros)].filter(Boolean).join(' · ');
     return `<tr class="${r.total && !r.unico ? 'total' : ''}${r.alt ? ' m-alt' : ''}">
       <td>${r.primeira ? `<b>${mesLabel(r.ym)}</b>` : ''}</td><td>${esc(r.tipo)}</td>
-      ${r.total && r.blocoH ? td(r.ei).replace('</td>', notaBlocoH(r.blocoH, r.ei) + '</td>') : td(r.ei)}${td(r.entradas)}<td class="n">${fmt(r.ded)}${ded && !(r.total && !r.unico) ? `<div class="src">${ded}</div>` : ''}</td>
+      ${r.blocoH ? td(r.ei).replace('</td>', notaBlocoH(r.blocoH, r.eiMes ?? r.ei) + '</td>') : td(r.ei)}${td(r.entradas)}<td class="n">${fmt(r.ded)}${ded && !(r.total && !r.unico) ? `<div class="src">${ded}</div>` : ''}</td>
       ${celulaCmv(r)}${td(r.ef)}</tr>`;
   };
   const corpo = rows.map(linha).join('');
@@ -1189,8 +1189,8 @@ function abaMovimento(T, yms, titulo){
   return [...cabXls(T), [titulo], [],
     ['Mês', 'Estoque', 'Estoque inicial', '(+) Entradas', '(−) Crédito IPI', '(−) Crédito PIS/COFINS', '(−) Devoluções e outros', '(−) Total de deduções', '(−) CMV', 'Situação no Domínio', '(=) Estoque final', 'CMV já lançado no Domínio', 'Diferença a lançar'],
     ...rows.map(r => [r.primeira ? mesLabel(r.ym) : '', r.tipo, rnd(r.ei), rnd(r.entradas), rnd(r.ipi), rnd(r.piscof), rnd(r.outros), rnd(r.ded), rnd(r.cmv), situacaoCmv(r).txt, rnd(r.ef), rnd(r.lanc), rnd(r.falta)]),
-    ...rows.filter(r => r.total && r.blocoH).map(r => [], ).slice(0, 1),
-    ...rows.filter(r => r.total && r.blocoH).map(r => ['Divergência (informativa)', `${r.blocoH.nome} em ${r.blocoH.data}`, rnd(r.blocoH.valor), 'Diferença para o estoque inicial de ' + mesLabel(r.ym), rnd(r.ei - r.blocoH.valor)]),
+    ...rows.filter(r => r.blocoH).map(r => [], ).slice(0, 1),
+    ...rows.filter(r => r.blocoH).map(r => ['Divergência (informativa)', `${r.blocoH.nome} em ${r.blocoH.data}`, rnd(r.blocoH.valor), 'Estoque inicial total de ' + mesLabel(r.ym), rnd(r.eiMes ?? r.ei), 'Diferença', rnd((r.eiMes ?? r.ei) - r.blocoH.valor)]),
     [],
     ['Como ler'],
     ['Estoque inicial: estoque final do mês anterior (no primeiro mês, o saldo inicial informado ou o do razão).'],
