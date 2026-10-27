@@ -167,7 +167,20 @@ details summary{cursor:pointer;color:var(--accent);margin:6px 0}
 <div id="print"></div>
 
 <script>
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+/* atualização: ao abrir pelo site, busca a página sem cache; se a versão publicada for outra, recarrega uma vez */
+const VERSAO = '2026-10-27.2';
+if (location.protocol.startsWith('http') && !emArtifactCedo()){
+  fetch(location.pathname, {cache:'reload'}).then(r => r.ok ? r.text() : '').then(t => {
+    const m = t.match(/const VERSAO = '([^']+)'/);
+    if (!m || m[1] === VERSAO) return;
+    let ja = null;
+    try { ja = sessionStorage.getItem('cmv.recarregou'); sessionStorage.setItem('cmv.recarregou', m[1]); } catch(e){}
+    if (ja !== m[1]) location.reload();
+  }).catch(() => {});
+}
+function emArtifactCedo(){ return !!(window.claude && typeof window.claude.use === 'function'); }
+
+pdfjsLib.GlobalWorkerOptions.workerSrc ='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
 /* ---------- utilidades ---------- */
 const fmt = v => (v == null || isNaN(v)) ? '—' : (Math.abs(v) < 0.005 ? 0 : v).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
