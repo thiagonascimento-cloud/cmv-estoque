@@ -1,0 +1,1152 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CMV e Estoque</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg:#f5f6f8; --card:#ffffff; --ink:#1c2230; --muted:#667085; --line:#e3e6eb;
+  --accent:#1f5fbf; --accent-soft:#e8f0fc; --ok:#1a7f4b; --ok-soft:#e5f5ec;
+  --bad:#b42318; --bad-soft:#fdecea; --warn:#9a6700; --warn-soft:#fff6db;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#12151b; --card:#1b1f27; --ink:#e7eaf0; --muted:#98a2b3; --line:#2c323d;
+    --accent:#6ea0ff; --accent-soft:#1d2a44; --ok:#4cc38a; --ok-soft:#163326;
+    --bad:#ff7b72; --bad-soft:#3a1d1d; --warn:#e3b341; --warn-soft:#3a3016; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#12151b; --card:#1b1f27; --ink:#e7eaf0; --muted:#98a2b3; --line:#2c323d;
+  --accent:#6ea0ff; --accent-soft:#1d2a44; --ok:#4cc38a; --ok-soft:#163326;
+  --bad:#ff7b72; --bad-soft:#3a1d1d; --warn:#e3b341; --warn-soft:#3a3016; color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 "Segoe UI",system-ui,sans-serif}
+.wrap{max-width:1280px;margin:0 auto;padding-block:20px 60px;
+  padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px))}
+.grid2 > *{min-width:0}
+.card{overflow-x:auto}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;justify-content:space-between;margin-bottom:16px}
+h1{font-size:22px;margin:0}
+.sub{color:var(--muted);font-size:13px}
+.btns{display:flex;gap:8px;flex-wrap:wrap}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:7px 12px;border-radius:8px;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button:disabled{opacity:.5;cursor:default}
+.slots{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}
+@media (max-width:820px){.slots{grid-template-columns:1fr}}
+.slot{background:var(--card);border:2px dashed var(--line);border-radius:12px;padding:14px;min-height:130px;cursor:pointer;transition:.15s}
+.slot.drag{border-color:var(--accent);background:var(--accent-soft)}
+.slot h3{margin:0 0 2px;font-size:15px}
+.slot .hint{color:var(--muted);font-size:12px;margin-bottom:8px}
+.slot .list{max-height:260px;overflow:auto}
+.file{font-size:12.5px;padding:6px 8px;border-radius:6px;background:var(--bg);margin-top:6px;word-break:break-word;cursor:default}
+.file b{display:block;font-weight:600}
+.file.off{opacity:.55}
+.file .x{float:right;cursor:pointer;color:var(--muted);margin-left:6px}
+.tag{display:inline-block;font-size:11px;padding:1px 6px;border-radius:10px;background:var(--accent-soft);color:var(--accent);margin:2px 4px 0 0}
+.tag.warn{background:var(--warn-soft);color:var(--warn)}
+.tag.bad{background:var(--bad-soft);color:var(--bad)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+.card h2{font-size:16px;margin:0 0 12px}
+.card h2 small{font-weight:400;color:var(--muted);font-size:12px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:980px){.grid2{grid-template-columns:1fr}}
+table{width:100%;border-collapse:collapse}
+td,th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+th{font-size:12px;color:var(--muted);font-weight:600}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+tr.total td{font-weight:700;border-top:2px solid var(--ink);border-bottom:none}
+tr.big td{font-size:17px}
+tr.click{cursor:pointer}
+tr.click:hover td{background:var(--accent-soft)}
+.neg{color:var(--bad)}
+.src{color:var(--muted);font-size:12px}
+input[type=text],input[type=number],select{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:6px;padding:4px 6px}
+input.money{width:140px;text-align:right}
+.status{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;white-space:nowrap}
+.status.ok{background:var(--ok-soft);color:var(--ok)}
+.status.bad{background:var(--bad-soft);color:var(--bad)}
+.status.na{background:var(--bg);color:var(--muted)}
+.empty{color:var(--muted);padding:24px;text-align:center}
+.opts{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:10px;font-size:13px}
+.scroll{overflow-x:auto}
+.cfop-desc{color:var(--muted);font-size:12px}
+.tabs{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.tabs button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.tabs .sp{flex:1}
+.kpi{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.kpi div{flex:1 1 170px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.kpi small{color:var(--muted);display:block;font-size:12px}
+.kpi b{font-size:19px;font-variant-numeric:tabular-nums}
+.kpi .main{border-color:var(--accent);background:var(--accent-soft)}
+.avisos{border-color:var(--warn);background:var(--warn-soft);font-size:13px}
+details summary{cursor:pointer;color:var(--accent);margin:6px 0}
+.map{display:flex;gap:10px;flex-wrap:wrap;font-size:12.5px;margin:8px 0}
+.map label{display:flex;flex-direction:column;gap:2px;color:var(--muted)}
+#print{display:none}
+/* relatório impresso */
+.rep{font:11.5px/1.4 "Segoe UI",Arial,sans-serif;color:#000;background:#fff;padding:8px;
+  --bg:#f3f4f6;--card:#fff;--ink:#000;--muted:#444;--line:#ccc;--accent:#1f5fbf;--accent-soft:#eef3fb;
+  --ok:#1a7f4b;--ok-soft:#e5f5ec;--bad:#b00;--bad-soft:#fdecea;--warn:#7a5200;--warn-soft:#fff6db}
+.rep .card{padding:10px;border-radius:6px;break-inside:avoid;margin-bottom:10px}
+.rep .kpi{gap:8px;margin-bottom:10px}
+.rep .kpi b{font-size:14px}
+.rep .src,.rep small{color:#444}
+.rep h1{font-size:17px;margin:0 0 2px}
+.rep h2{font-size:13.5px;margin:18px 0 6px;border-bottom:1.5px solid #000;padding-bottom:2px}
+.rep .cab{margin-bottom:10px;color:#333}
+.rep table{width:100%;border-collapse:collapse;margin-bottom:6px}
+.rep td,.rep th{border-bottom:1px solid #ccc;padding:3px 5px;color:#000}
+.rep th{background:#eee;font-size:10.5px}
+.rep .neg{color:#b00}
+.rep .status{border:1px solid #999;background:none;color:#000}
+.rep .pb{break-before:page}
+@media print{
+  body.printing .wrap{display:none}
+  body.printing #print{display:block}
+  body.printing{background:#fff}
+  @page{size:A4 landscape;margin:12mm}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>CMV e Estoque</h1>
+      <div class="sub" id="cliente">Carregue o razão, os SPEDs e os inventários. Os arquivos são lidos só neste computador.</div>
+    </div>
+    <div class="btns">
+      <button id="bClear">Limpar tudo</button>
+    </div>
+  </header>
+
+  <div class="slots">
+    <div class="slot" data-kind="razao">
+      <h3>1. Razão da conta de estoque</h3>
+      <div class="hint">TXT exportado do Domínio, Excel ou CSV · saldo inicial, compras, créditos e CMV contabilizado</div>
+      <div class="list"></div>
+    </div>
+    <div class="slot" data-kind="sped">
+      <h3>2. SPED ICMS/IPI</h3>
+      <div class="hint">Um .txt por mês (pode soltar vários) · compras por CFOP e nota</div>
+      <div class="list"></div>
+    </div>
+    <div class="slot" data-kind="inv">
+      <h3>3. Inventários</h3>
+      <div class="hint">PDFs de veículos, peças… · usa o total da última página · soma os do mesmo mês</div>
+      <div class="list"></div>
+    </div>
+  </div>
+  <input type="file" id="picker" multiple hidden>
+
+  <div id="out"></div>
+</div>
+<div id="print"></div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+/* ---------- utilidades ---------- */
+const fmt = v => (v == null || isNaN(v)) ? '—' : (Math.abs(v) < 0.005 ? 0 : v).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const numSped = s => s ? parseFloat(s.replace(',', '.')) || 0 : 0;
+function numBR(v){
+  if (typeof v === 'number') return v;
+  if (v == null) return 0;
+  let s = String(v).trim();
+  if (!s) return 0;
+  const neg = /^\(.*\)$/.test(s) || /^-/.test(s) || /-$/.test(s);
+  s = s.replace(/[^\d,.]/g, '');
+  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+  const n = parseFloat(s) || 0;
+  return neg ? -n : n;
+}
+const MESES = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+const MES3 = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+const mesLabel = ym => { if (!ym) return '—'; const [y, m] = ym.split('-'); return MESES[+m - 1] + '/' + y; };
+const mesCurto = ym => { const [y, m] = ym.split('-'); return MES3[+m - 1] + '/' + y.slice(2); };
+const prevYm = ym => { let [y, m] = ym.split('-').map(Number); m--; if (!m){ m = 12; y--; } return y + '-' + String(m).padStart(2, '0'); };
+const ymDe = d => d.slice(6, 10) + '-' + d.slice(3, 5);       // dd/mm/aaaa
+const r2 = v => Math.round(v * 100) / 100;
+const semAcento = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '');
+function lsGet(k, d){ try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e){ return d; } }
+function lsSet(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
+function decodeTxt(bytes){
+  try { return new TextDecoder('utf-8', {fatal:true}).decode(bytes); }
+  catch(e){ return new TextDecoder('windows-1252').decode(bytes); }
+}
+
+/* ---------- classificação de CFOP ---------- */
+const CATS = {
+  compra:  {label:'Compra', sinal:+1},
+  frete:   {label:'Frete s/ compra', sinal:+1},
+  outent:  {label:'Outra entrada (soma)', sinal:+1},
+  devcomp: {label:'Devolução de compra', sinal:-1},
+  outsai:  {label:'Outra saída (subtrai)', sinal:-1},
+  ignorar: {label:'Não compõe', sinal:0},
+};
+const SUF_COMPRA = ['101','102','111','113','116','117','118','120','121','122','401','403'];
+const SUF_DEVCOMP = ['201','202','208','209','210','410','411','412','413'];
+function catPadrao(cfop){
+  const d = cfop[0], s = cfop.slice(1);
+  if ('123'.includes(d)){
+    if (SUF_COMPRA.includes(s) || cfop === '3127') return 'compra';
+    if (s === '352' || s === '353') return 'frete';
+    return 'ignorar';
+  }
+  return SUF_DEVCOMP.includes(s) ? 'devcomp' : 'ignorar';
+}
+const DESCR = {
+  '1101':'Compra p/ industrialização','1102':'Compra p/ comercialização','1401':'Compra p/ industrialização c/ ST','1403':'Compra p/ comercialização c/ ST',
+  '2101':'Compra p/ industrialização','2102':'Compra p/ comercialização','2401':'Compra p/ industrialização c/ ST','2403':'Compra p/ comercialização c/ ST',
+  '3101':'Importação p/ industrialização','3102':'Importação p/ comercialização','3127':'Compra drawback',
+  '1352':'Frete s/ compra','2352':'Frete s/ compra','1353':'Frete s/ compra','2353':'Frete s/ compra',
+  '1201':'Devolução de venda','1202':'Devolução de venda','2201':'Devolução de venda','2202':'Devolução de venda',
+  '1410':'Devolução de venda c/ ST','1411':'Devolução de venda c/ ST','2410':'Devolução de venda c/ ST','2411':'Devolução de venda c/ ST',
+  '1551':'Ativo imobilizado','2551':'Ativo imobilizado','1556':'Uso e consumo','2556':'Uso e consumo','1407':'Uso e consumo c/ ST','2407':'Uso e consumo c/ ST',
+  '1651':'Combustível p/ industrialização','1652':'Combustível p/ comercialização','2652':'Combustível p/ comercialização','1653':'Combustível p/ consumo','2653':'Combustível p/ consumo',
+  '1908':'Entrada em comodato','2908':'Entrada em comodato','1909':'Retorno de comodato','2909':'Retorno de comodato',
+  '1910':'Bonificação/brinde','2910':'Bonificação/brinde','1912':'Entrada p/ demonstração','2912':'Entrada p/ demonstração',
+  '1913':'Retorno de demonstração','2913':'Retorno de demonstração','1914':'Retorno de exposição/feira','2914':'Retorno de exposição/feira',
+  '1915':'Entrada p/ conserto','2915':'Entrada p/ conserto','1916':'Retorno de conserto','2916':'Retorno de conserto',
+  '1920':'Entrada de vasilhame','1922':'Simples faturamento (entrega futura)','2922':'Simples faturamento (entrega futura)',
+  '1949':'Outra entrada','2949':'Outra entrada','1253':'Energia elétrica','2253':'Energia elétrica','2256':'Energia elétrica',
+  '5201':'Devolução de compra','5202':'Devolução de compra','6201':'Devolução de compra','6202':'Devolução de compra',
+  '5410':'Devolução de compra c/ ST','5411':'Devolução de compra c/ ST','6410':'Devolução de compra c/ ST','6411':'Devolução de compra c/ ST',
+};
+
+/* ---------- classificação do razão ---------- */
+const RCATS = {saldo:'Saldo inicial', compra:'Compras', transf:'Transferência de saldo', cmv:'CMV', ipi:'Crédito IPI', icms:'Crédito ICMS',
+  pis:'Crédito PIS', cofins:'Crédito COFINS', devol:'Devoluções', bonif:'Bonificações', servico:'Serviços tomados', outros:'Outros'};
+function catRazao(h){
+  const s = semAcento(String(h)).toUpperCase();
+  if (/TRANSF\w*\.? DE SALDO/.test(s)) return 'transf';
+  if (/\bCMV\b|CUSTO D[AO]S? (MERCADORIA|PRODUTO|VENDA)|BAIXA (DE|DO) ESTOQUE/.test(s)) return 'cmv';
+  if (/CREDITO|RECUPER/.test(s)){
+    if (/COFINS/.test(s)) return 'cofins';
+    if (/\bPIS\b/.test(s)) return 'pis';
+    if (/\bIPI\b/.test(s)) return 'ipi';
+    if (/ICMS/.test(s)) return 'icms';
+  }
+  if (/DEVOL/.test(s)) return 'devol';
+  if (/BONIFICA/.test(s)) return 'bonif';
+  if (/SERVICO/.test(s)) return 'servico';
+  if (/CONSERTO|COMODATO|DEMONSTRA/.test(s)) return 'outros';
+  if (/COMPRA|AQUISI|IMPORTA/.test(s)) return 'compra';
+  return 'outros';
+}
+const numNota = h => { const m = String(h).match(/NESTA DATA\s+(\d+)/i) || String(h).match(/\bN(?:F|OTA)[\s.º°:-]*(?:FISCAL)?[\s.º°:-]*(\d{2,})/i); return m ? m[1].replace(/^0+/, '') : null; };
+
+/* ---------- estado ---------- */
+const state = {razao:[], sped:[], inv:[]};
+let opts = lsGet('cmv.opts', {dedIcms:true, dedIpi:true, pisCofRazao:true, tol:1});
+let overrides = {};
+const manual = {ei:{}, ajuste:{}, eiTipo:{}};
+let aba = 'lancar', mesSel = null, uid = 0;
+
+/* ---------- carga de arquivos ---------- */
+const picker = document.getElementById('picker');
+let pickKind = null;
+document.querySelectorAll('.slot').forEach(slot => {
+  slot.addEventListener('click', e => {
+    if (e.target.closest('.file')) return;
+    pickKind = slot.dataset.kind;
+    picker.accept = {razao:'.txt,.xlsx,.xls,.csv', sped:'.txt', inv:'.pdf'}[pickKind];
+    picker.click();
+  });
+  slot.addEventListener('dragover', e => { e.preventDefault(); slot.classList.add('drag'); });
+  slot.addEventListener('dragleave', () => slot.classList.remove('drag'));
+  slot.addEventListener('drop', e => { e.preventDefault(); slot.classList.remove('drag'); addFiles([...e.dataTransfer.files], slot.dataset.kind); });
+});
+picker.addEventListener('change', () => { addFiles([...picker.files], pickKind); picker.value = ''; });
+
+async function addFiles(files, hint){
+  for (const f of files){
+    if ([...state.razao, ...state.sped, ...state.inv].some(x => x.name === f.name && x.size === f.size)) continue;
+    const buf = await f.arrayBuffer();
+    const low = f.name.toLowerCase();
+    // o tipo é decidido pelo conteúdo, não pelo quadro onde o arquivo caiu
+    let k;
+    if (low.endsWith('.pdf')) k = 'inv';
+    else if (/\.(xlsx|xls|csv)$/.test(low)) k = 'razao';
+    else k = new TextDecoder('latin1').decode(new Uint8Array(buf, 0, Math.min(10, buf.byteLength))).startsWith('|0000|') ? 'sped' : 'razao';
+    const item = {id: ++uid, name: f.name, size: f.size, loading: true};
+    state[k].push(item);
+    renderSlots();
+    try {
+      if (k === 'sped') Object.assign(item, parseSped(buf));
+      else if (k === 'inv') Object.assign(item, await parseInvPdf(buf, f.name));
+      else Object.assign(item, parseRazao(buf, f.name));
+    } catch(err){ console.error(err); item.erro = 'Não foi possível ler: ' + err.message; }
+    item.loading = false;
+    if (k === 'sped' && item.cnpj){
+      overrides = lsGet('cmv.cfop.' + item.cnpj, {});
+      contaTipo = lsGet('cmv.contas.' + item.cnpj, {});
+      const salvo = lsGet('cmv.ei.' + item.cnpj, {});
+      if (salvo.ei) Object.assign(manual.ei, salvo.ei, manual.ei);
+      if (salvo.eiTipo) Object.assign(manual.eiTipo, salvo.eiTipo, manual.eiTipo);
+    }
+    renderAll();
+  }
+}
+
+/* ---------- SPED ---------- */
+function parseSped(buf){
+  const bytes = new Uint8Array(buf);
+  const latin = new TextDecoder('windows-1252').decode(bytes);
+  const fim = latin.indexOf('|9999|');
+  let end = bytes.length;
+  if (fim >= 0){ const nl = latin.indexOf('\n', fim); end = nl >= 0 ? nl + 1 : end; }  // ignora a assinatura digital
+  const lines = decodeTxt(bytes.subarray(0, end)).split(/\r?\n/);
+  if (!lines[0].startsWith('|0000|')) throw new Error('não é um arquivo EFD ICMS/IPI');
+  const agg = {}, part = {}, notas = [], blocoH = [];
+  const VALIDOS = ['00','01','06','07','08'];
+  let h = {}, ind = null, ok = false, nota = null, ndocs = 0;
+  for (const l of lines){
+    if (!l.startsWith('|')) continue;
+    const p = l.split('|'), r = p[1];
+    if (r === '0000') h = {fin:p[3], ini:p[4], fim:p[5], nome:p[6], cnpj:p[7], uf:p[9], ie:p[10]};
+    else if (r === '0150') part[p[2]] = p[3];
+    else if (r === 'C100' || r === 'D100'){
+      ind = p[2]; ok = VALIDOS.includes(p[6]); nota = null;
+      if (ok){
+        ndocs++;
+        if (r === 'C100' && ind === '0'){
+          nota = {num:(p[8] || '').replace(/^0+/, ''), part:p[4], data:p[11] || p[10], vl:numSped(p[12]), cfops:{}};
+          notas.push(nota);
+        }
+      }
+    } else if ((r === 'C190' || r === 'D190') && ok){
+      const cfop = p[3], k = ind + '|' + cfop;
+      const a = agg[k] ||= {ind, cfop, opr:0, icms:0, st:0, ipi:0, n:0};
+      const opr = numSped(p[5]);
+      a.opr += opr; a.icms += numSped(p[7]); a.n++;
+      if (r === 'C190'){ a.st += numSped(p[9]); a.ipi += numSped(p[11]); }
+      if (nota) nota.cfops[cfop] = (nota.cfops[cfop] || 0) + opr;
+    } else if (r === 'H005') blocoH.push({data:p[2], valor:numSped(p[3]), mot:p[4]});
+    else if (r === '9999') break;
+  }
+  const d = s => s.slice(0, 2) + '/' + s.slice(2, 4) + '/' + s.slice(4);
+  return {
+    nome:h.nome, cnpj:h.cnpj, ie:h.ie, uf:h.uf, fin:h.fin, ym:h.ini.slice(4, 8) + '-' + h.ini.slice(2, 4),
+    periodo:d(h.ini) + ' a ' + d(h.fim), ndocs, part, notas,
+    linhas:Object.values(agg).sort((a, b) => a.ind.localeCompare(b.ind) || a.cfop.localeCompare(b.cfop)),
+    blocoH:blocoH.map(x => ({...x, data:d(x.data), ym:x.data.slice(4) + '-' + x.data.slice(2, 4)})),
+  };
+}
+
+/* ---------- inventário em PDF ---------- */
+async function pdfLines(buf){
+  const pdf = await pdfjsLib.getDocument({data:buf}).promise;
+  const pages = [];
+  for (let i = 1; i <= pdf.numPages; i++){
+    const tc = await (await pdf.getPage(i)).getTextContent();
+    const rows = {};
+    tc.items.forEach(it => { if (!it.str.trim()) return; const y = Math.round(it.transform[5]); (rows[y] ||= []).push(it); });
+    pages.push(Object.keys(rows).sort((a, b) => b - a)
+      .map(y => rows[y].sort((a, b) => a.transform[4] - b.transform[4]).map(i => i.str).join(' ').replace(/\s+/g, ' ').trim()));
+  }
+  return pages;
+}
+function mesDoNome(nome){
+  const n = semAcento(nome.toLowerCase());
+  const ano = (n.match(/20\d\d/) || [])[0];
+  let m = -1;
+  MESES.forEach((x, i) => { if (n.includes(semAcento(x))) m = i; });
+  if (m < 0) MES3.forEach((x, i) => { if (new RegExp('(^|[^a-z])' + x + '([^a-z]|$)').test(n)) m = i; });
+  if (m < 0){ const mm = n.match(/(?:^|\D)(0[1-9]|1[0-2])(20\d\d)(?:\D|$)/); if (mm) return mm[2] + '-' + mm[1]; }
+  return (m >= 0 && ano) ? ano + '-' + String(m + 1).padStart(2, '0') : null;
+}
+async function parseInvPdf(buf, nome){
+  const pages = await pdfLines(buf);
+  const all = pages.flat(), txt = all.join('\n');
+  const topo = all.slice(0, 8).join(' ') + ' ' + nome;
+  const tipo = /ve[íi]culo/i.test(topo) ? 'Veículos' : /pe[çc]a|modelo 7/i.test(topo) ? 'Peças' : 'Estoque';
+  if (!txt.trim()) return {tipo, paginas:pages.length, valor:null, ym:mesDoNome(nome), semTexto:true};
+  const data = (txt.match(/Refer[êe]ncia \(m[êe]s\/ano\):\s*(\d{2}\/\d{2}\/\d{4})/i) || txt.match(/EXISTENTE EM\s*(\d{2}\/\d{2}\/\d{4})/i) || txt.match(/(\d{2}\/\d{2}\/20\d\d)/) || [])[1];
+  // total geral = último "Qtd: N Total: X" (fica na última página)
+  const tots = [...txt.matchAll(/Qtde?:\s*([\d.]+)\s+Total:\s*([\d.]+,\d{2})/gi)];
+  let valor = null, itens = null;
+  if (tots.length){ const u = tots[tots.length - 1]; valor = numBR(u[2]); itens = numBR(u[1]); }
+  else { const t2 = [...txt.matchAll(/Total[^\d\n]*([\d.]+,\d{2})/gi)]; if (t2.length) valor = numBR(t2[t2.length - 1][1]); }
+  return {tipo, paginas:pages.length, valor, itens, data, ym:data ? ymDe(data) : mesDoNome(nome), semValor:valor == null};
+}
+
+/* ---------- razão ---------- */
+const toDate = v => {
+  if (v instanceof Date) return v;
+  if (typeof v === 'number' && v > 20000 && v < 80000) return new Date(Math.round((v - 25569) * 864e5) + 12 * 36e5);
+  const m = String(v).match(/^\s*(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  return m ? new Date(m[3].length === 2 ? 2000 + +m[3] : +m[3], m[2] - 1, +m[1], 12) : null;
+};
+const dataBR = d => String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear();
+
+function parseRazao(buf, nome){
+  const low = nome.toLowerCase();
+  if (!/\.(xlsx|xls|csv)$/.test(low)){
+    const txt = decodeTxt(new Uint8Array(buf));
+    const rows = txt.split(/\r?\n/).filter(l => l.trim()).map(l => l.split('\t'));
+    if (rows.length && rows[0].length >= 20 && /^\d{2}\/\d{2}\/\d{4}$/.test(rows[0][5])) return parseDominio(rows);
+    throw new Error('formato de razão não reconhecido');
+  }
+  const wb = XLSX.read(buf, {type:'array', cellDates:true});
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:''});
+  let hi = rows.findIndex((r, i) => i < 60 && r.some(c => /^\s*data/i.test(c)) && r.some(c => /d[ée]b|cr[ée]d/i.test(c)));
+  if (hi < 0) hi = 0;
+  const head = rows[hi].map(c => String(c).trim());
+  const find = re => head.findIndex(c => re.test(c));
+  const map = {data:find(/^data/i), hist:find(/hist/i), deb:find(/d[ée]b/i), cred:find(/cr[ée]d/i), saldo:find(/saldo/i)};
+  return {formato:'planilha', rows, hi, head, map, ...linhasPlanilha(rows, hi, map)};
+}
+// TXT do Domínio: [1] conta [2] nome [4] 1=saldo anterior/2=lançamento [5] data [11] débito [12] crédito [14] saldo anterior [17] histórico
+function parseDominio(rows){
+  const lancs = [], saldos = [], contas = {};
+  rows.forEach(r => {
+    const conta = r[1], data = r[5];
+    contas[conta] = r[2];
+    if (r[4] === '1') saldos.push({conta, data, ym:ymDe(data), valor:numBR(r[14])});
+    else if (r[4] === '2'){
+      const deb = numBR(r[11]), cred = numBR(r[12]);
+      if (deb || cred) lancs.push({conta, data, ym:ymDe(data), deb, cred, hist:(r[17] || '').trim(), contra:r[8] && r[8] !== '0' ? r[8] : ''});
+    }
+  });
+  return fechaRazao('Domínio (TXT)', lancs, saldos, contas);
+}
+function saldoDC(v){
+  const s = String(v).trim(), n = Math.abs(numBR(s));
+  return /c\s*$/i.test(s) ? -n : /d\s*$/i.test(s) ? n : numBR(s);
+}
+function linhasPlanilha(rows, hi, map){
+  const lancs = [], saldos = [];
+  let primeira = null;
+  for (let i = hi + 1; i < rows.length; i++){
+    const r = rows[i], linha = r.join(' ');
+    const dt = map.data >= 0 ? toDate(r[map.data]) : null;
+    if (/saldo\s+anterior|saldo\s+inicial/i.test(linha)){
+      let v = map.saldo >= 0 && r[map.saldo] !== '' ? saldoDC(r[map.saldo]) : null;
+      if (v == null){ const nums = r.filter(c => c !== '' && /\d/.test(c) && !toDate(c)); if (nums.length) v = saldoDC(nums[nums.length - 1]); }
+      if (v != null) saldos.push({conta:'', data:dt ? dataBR(dt) : null, ym:null, valor:v});
+      continue;
+    }
+    if (!dt) continue;
+    const deb = map.deb >= 0 ? Math.abs(numBR(r[map.deb])) : 0, cred = map.cred >= 0 ? Math.abs(numBR(r[map.cred])) : 0;
+    if (!deb && !cred) continue;
+    const data = dataBR(dt);
+    primeira ||= data;
+    lancs.push({conta:'', data, ym:ymDe(data), deb, cred, hist:map.hist >= 0 ? String(r[map.hist]).trim() : ''});
+  }
+  saldos.forEach(s => { s.data ||= primeira; s.ym = s.data ? ymDe(s.data) : null; });
+  return fechaRazao('Planilha', lancs, saldos, {});
+}
+function fechaRazao(formato, lancs, saldos, contas){
+  lancs.forEach(l => { l.cat = catRazao(l.hist); l.nota = l.cat === 'compra' ? numNota(l.hist) : null; });
+  const meses = [...new Set([...lancs.map(l => l.ym), ...saldos.map(s => s.ym)].filter(Boolean))].sort();
+  return {formato, lancs, saldos, contas, meses, si:saldos.reduce((s, x) => s + x.valor, 0), temSaldo:saldos.length > 0};
+}
+
+/* ---------- consolidação ---------- */
+function spedsAtivos(){
+  const porMes = {};
+  state.sped.filter(s => !s.loading && !s.erro).forEach(s => {
+    const a = porMes[s.ym];
+    if (!a || +s.fin > +a.fin || (s.fin === a.fin && s.id > a.id)) porMes[s.ym] = s;
+  });
+  state.sped.forEach(s => s.substituido = porMes[s.ym] && porMes[s.ym] !== s);
+  return porMes;
+}
+function inventarios(){
+  const lista = state.inv.filter(i => !i.loading && !i.erro).map(i => ({...i, origem:'pdf'}));
+  Object.values(spedsAtivos()).forEach(s => s.blocoH.forEach(h => lista.push({
+    id:'h' + s.id + h.data, name:'Bloco H do SPED ' + mesCurto(s.ym), tipo:'Bloco H', valor:h.valor, data:h.data, ym:h.ym, origem:'sped'})));
+  const porMes = {};
+  lista.forEach(i => { if (i.ym) (porMes[i.ym] ||= []).push(i); });
+  // se houver PDFs para o mês, o Bloco H do mesmo mês fica só como conferência
+  Object.keys(porMes).forEach(ym => {
+    const pdfs = porMes[ym].filter(i => i.origem === 'pdf');
+    porMes[ym] = {itens:porMes[ym], usados:pdfs.length ? pdfs : porMes[ym]};
+    const u = porMes[ym].usados;
+    porMes[ym].valor = u.every(i => i.valor != null) ? u.reduce((s, i) => s + i.valor, 0) : null;
+  });
+  return porMes;
+}
+function razaoTudo(){
+  const rz = state.razao.filter(r => !r.loading && !r.erro);
+  return {lancs:rz.flatMap(r => r.lancs), saldos:rz.flatMap(r => r.saldos), meses:[...new Set(rz.flatMap(r => r.meses))].sort(), tem:rz.length > 0};
+}
+function razaoMes(R, ym){
+  if (!R.tem || !R.meses.length || ym < R.meses[0]) return null;
+  const ultimo = R.meses[R.meses.length - 1];
+  if (ym > ultimo && ym !== proxYm(ultimo)) return null;
+  let si = 0;
+  R.saldos.forEach(s => { if (s.ym && s.ym <= ym) si += s.valor; });
+  R.lancs.forEach(l => { if (l.ym < ym) si += l.deb - l.cred; });
+  const coberto = ym <= ultimo;
+  const deb = {}, cred = {}, ls = R.lancs.filter(l => l.ym === ym);
+  ls.forEach(l => { if (l.deb) deb[l.cat] = (deb[l.cat] || 0) + l.deb; if (l.cred) cred[l.cat] = (cred[l.cat] || 0) + l.cred; });
+  const tD = ls.reduce((s, l) => s + l.deb, 0), tC = ls.reduce((s, l) => s + l.cred, 0);
+  return {si, coberto, deb, cred, tD, tC, sf:coberto ? si + tD - tC : null, lancs:ls};
+}
+/* ---------- CMV a lançar: saldo do razão antes do CMV − inventário, por conta/tipo ---------- */
+const tipoPadrao = nome => /PE[ÇC]A|ACESS/i.test(nome) ? 'Peças' : 'Veículos';
+let contaTipo = {};
+const somaInv = (I, t) => {
+  if (!I) return null;
+  const us = t ? I.usados.filter(i => i.tipo === t) : I.usados;
+  return us.length && us.every(i => i.valor != null) ? us.reduce((s, i) => s + i.valor, 0) : null;
+};
+function cmvALancar(T){
+  const rz = state.razao.filter(r => !r.loading && !r.erro), R = T.R;
+  if (!rz.length || !R.meses.length) return [];
+  const nomes = Object.assign({}, ...rz.map(r => r.contas));
+  const contas = [...new Set([...R.lancs.map(l => l.conta), ...R.saldos.map(s => s.conta)])];
+  const ult = R.meses[R.meses.length - 1];
+  const meses = [...new Set([...T.meses, ...R.meses])].filter(m => m >= R.meses[0] && m <= ult).sort();
+  // contrapartida usada no razão para o CMV (vale também para contas sem CMV no mês)
+  const contraGeral = [...new Set(R.lancs.filter(l => l.cat === 'cmv' && l.contra).map(l => l.contra))].join(', ');
+  return meses.map(ym => {
+    const inv = T.inv[ym], invAnt = T.inv[prevYm(ym)];
+    const por = contas.map(c => {
+      let si = 0, mov = 0, lanc = 0;
+      const contra = new Set(), cats = {}, cmvLancs = [];
+      R.saldos.forEach(s => { if (s.conta === c && s.ym && s.ym <= ym) si += s.valor; });
+      R.lancs.forEach(l => {
+        if (l.conta !== c) return;
+        if (l.ym < ym) si += l.deb - l.cred;
+        else if (l.ym === ym){
+          if (l.cat === 'cmv'){ lanc += l.cred - l.deb; if (l.contra) contra.add(l.contra); cmvLancs.push(l); }
+          else { mov += l.deb - l.cred; const k = cats[l.cat] ||= {v:0, n:0}; k.v += l.deb - l.cred; k.n++; }
+        }
+      });
+      return {conta:c, nome:nomes[c] || '', tipo:contaTipo[c] || tipoPadrao(nomes[c] || ''), si, mov, antes:si + mov, lanc, contra:[...contra], cats, cmvLancs};
+    }).filter(x => Math.abs(x.si) > 0.004 || Math.abs(x.mov) > 0.004 || Math.abs(x.lanc) > 0.004);
+    // separa por tipo de estoque quando o inventário do mês tem os mesmos tipos das contas
+    const tiposInv = inv ? [...new Set(inv.usados.map(i => i.tipo))] : [];
+    const tiposC = [...new Set(por.map(x => x.tipo))];
+    const porTipo = tiposInv.length > 1 && tiposInv.every(t => tiposC.includes(t)) && tiposC.every(t => tiposInv.includes(t));
+    const grupos = (porTipo ? tiposC.sort() : [null]).map(t => {
+      const cs = por.filter(x => !t || x.tipo === t);
+      const sum = k => cs.reduce((s, x) => s + x[k], 0);
+      const ef = somaInv(inv, t);
+      let efAnt = null;
+      if (invAnt && (!t || invAnt.usados.some(i => i.tipo === t))) efAnt = somaInv(invAnt, t);
+      const tipo = t || 'Total', mov = sum('mov'), lanc = sum('lanc'), siRazao = sum('si');
+      // estoque inicial do mês: 1º mês = digitado (ou razão); demais = inventário do mês anterior (ou razão)
+      let siBase = siRazao, siFonte = 'saldo inicial do razão';
+      if (ym === meses[0]){ if (manual.eiTipo[tipo] != null){ siBase = manual.eiTipo[tipo]; siFonte = 'digitado'; } }
+      else if (efAnt != null){ siBase = efAnt; siFonte = 'inventário de ' + mesCurto(prevYm(ym)); }
+      const cmvMes = ef != null ? siBase + mov - ef : null;
+      const pendAnt = siRazao - siBase;
+      const principal = cs.slice().sort((a, b) => Math.abs(b.antes) - Math.abs(a.antes))[0];
+      const contra = [...new Set(cs.flatMap(x => x.contra))];
+      return {tipo, primeiro:ym === meses[0], contas:cs, siRazao, siBase, siFonte, mov, ef, cmvMes, lanc, difMes:cmvMes != null ? cmvMes - lanc : null, pendAnt,
+        total:cmvMes != null ? cmvMes - lanc + pendAnt : null, antesRazao:siRazao + mov,
+        invs:inv ? inv.usados.filter(i => !t || i.tipo === t) : [], contaCred:principal ? principal.conta : '', contaDeb:contra.join(', ') || contraGeral};
+    });
+    const tot = k => grupos.some(g => g[k] == null) ? null : grupos.reduce((s, g) => s + g[k], 0);
+    return {ym, grupos, ...Object.fromEntries(['siRazao', 'siBase', 'mov', 'ef', 'cmvMes', 'lanc', 'difMes', 'pendAnt', 'total'].map(k => [k, tot(k)]))};
+  });
+}
+
+function proxYm(ym){ let [y, m] = ym.split('-').map(Number); m++; if (m > 12){ m = 1; y++; } return y + '-' + String(m).padStart(2, '0'); }
+
+const catDe = cfop => overrides[cfop] || catPadrao(cfop);
+function custoLinha(a){ let v = a.opr; if (opts.dedIcms) v -= a.icms; if (opts.dedIpi) v -= a.ipi; return v; }
+
+function calcMes(ym, sped, inv, R, primeiro){
+  const tot = {compra:0, frete:0, outent:0, devcomp:0, outsai:0}, bruto = {compra:0, ipi:0, icms:0};
+  if (sped) sped.linhas.forEach(a => {
+    const c = catDe(a.cfop);
+    if (c in tot) tot[c] += custoLinha(a);
+    if (c === 'compra'){ bruto.compra += a.opr; bruto.ipi += a.ipi; bruto.icms += a.icms; }
+  });
+  const rz = razaoMes(R, ym);
+  const piscof = (opts.pisCofRazao && rz && rz.coberto) ? (rz.cred.pis || 0) + (rz.cred.cofins || 0) - (rz.deb.pis || 0) - (rz.deb.cofins || 0) : 0;
+  const entradas = tot.compra + tot.frete + tot.outent, saidas = tot.devcomp + tot.outsai;
+  const ajuste = manual.ajuste[ym] || 0;
+  const comprasLiq = entradas - saidas - piscof + ajuste;
+
+  // estoque inicial: digitado > (1º mês) saldo do razão > inventário do mês anterior > saldo do razão
+  const invAnt = inv[prevYm(ym)];
+  let ei = null, eiFonte = '';
+  if (manual.ei[ym] != null){ ei = manual.ei[ym]; eiFonte = 'digitado'; }
+  else if (primeiro && rz){ ei = rz.si; eiFonte = 'saldo inicial do razão'; }
+  else if (invAnt && invAnt.valor != null){ ei = invAnt.valor; eiFonte = 'inventário de ' + mesCurto(prevYm(ym)); }
+  else if (rz){ ei = rz.si; eiFonte = 'saldo inicial do razão'; }
+  const ef = inv[ym] ? inv[ym].valor : null;
+  const cmv = (ei != null && sped && ef != null) ? ei + comprasLiq - ef : null;
+  const cmvCont = rz && rz.coberto ? (rz.cred.cmv || 0) - (rz.deb.cmv || 0) : null;
+
+  let vendas = 0;
+  if (sped) sped.linhas.forEach(a => { if (a.ind === '1' && /^[567](10[1-9]|11\d|12[0-4]|40[1-5])$/.test(a.cfop)) vendas += a.opr - a.ipi - a.st; });
+
+  // conferência nota a nota das compras
+  let notas = null;
+  if (sped && rz && rz.coberto){
+    const sp = {}, rr = {};
+    sped.notas.forEach(n => {
+      const v = Object.entries(n.cfops).reduce((s, [c, x]) => s + (catDe(c) === 'compra' ? x : 0), 0);
+      if (v){ const k = n.num; (sp[k] ||= {num:k, part:sped.part[n.part] || n.part, data:n.data, v:0}).v += v; }
+    });
+    let semNum = 0;
+    rz.lancs.filter(l => l.cat === 'compra').forEach(l => {
+      if (!l.nota){ semNum += l.deb - l.cred; return; }
+      (rr[l.nota] ||= {num:l.nota, data:l.data, hist:l.hist, v:0}).v += l.deb - l.cred;
+    });
+    const soSped = [], soRazao = [], difs = [];
+    Object.values(sp).forEach(n => { const r = rr[n.num]; if (!r) soSped.push(n); else if (Math.abs(r.v - n.v) > opts.tol) difs.push({...n, vr:r.v}); });
+    Object.values(rr).forEach(r => { if (!sp[r.num]) soRazao.push(r); });
+    const ord = (a, b) => (+a.num || 0) - (+b.num || 0);
+    notas = {soSped:soSped.sort(ord), soRazao:soRazao.sort(ord), difs:difs.sort(ord), semNum, nSped:Object.keys(sp).length, nRazao:Object.keys(rr).length};
+  }
+
+  const conc = [];
+  const add = (nome, a, b, obs) => conc.push({nome, a, b, d:(a != null && b != null) ? b - a : null, obs});
+  if (invAnt && invAnt.valor != null && rz) add('Estoque inicial: inventário anterior × saldo inicial do razão', invAnt.valor, rz.si, 'inventário de ' + mesCurto(prevYm(ym)));
+  if (rz && rz.coberto){
+    add('Compras: SPED (valor contábil) × débitos de compra no razão', sped ? bruto.compra : null, (rz.deb.compra || 0) - (rz.cred.compra || 0));
+    if (rz.cred.ipi || (sped && bruto.ipi)) add('Crédito de IPI: SPED × razão', sped ? bruto.ipi : null, (rz.cred.ipi || 0) - (rz.deb.ipi || 0));
+    if (rz.cred.icms || (sped && bruto.icms && opts.dedIcms)) add('Crédito de ICMS: SPED × razão', sped ? bruto.icms : null, (rz.cred.icms || 0) - (rz.deb.icms || 0));
+    add('CMV apurado × CMV contabilizado', cmv, cmvCont);
+    add('Estoque final: inventário × saldo final do razão', ef, rz.sf);
+  }
+  return {ym, sped, tot, bruto, piscof, ajuste, entradas, saidas, comprasLiq, ei, eiFonte, ef, cmv, cmvCont, rz, inv:inv[ym], vendas, notas, conc};
+}
+
+function calcularTudo(){
+  const speds = spedsAtivos(), inv = inventarios(), R = razaoTudo();
+  let meses = Object.keys(speds).sort();
+  if (!meses.length) meses = R.meses.filter(m => inv[m]);
+  const res = meses.map((ym, i) => calcMes(ym, speds[ym], inv, R, i === 0));
+  const s = Object.values(speds)[0];
+  const T = {meses, res, inv, R, cliente:s ? {nome:s.nome, cnpj:s.cnpj, uf:s.uf, ie:s.ie} : null};
+  T.lancar = cmvALancar(T);
+  return T;
+}
+
+/* ---------- interface ---------- */
+const cnpjFmt = c => (c || '').replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+const td = (v, cls = '') => `<td class="n${v != null && v < -0.004 ? ' neg' : ''}${cls ? ' ' + cls : ''}">${fmt(v)}</td>`;
+const stat = d => d == null ? '<span class="status na">sem dados</span>' : Math.abs(d) <= opts.tol ? '<span class="status ok">confere</span>' : '<span class="status bad">diferença</span>';
+
+function renderSlots(){
+  spedsAtivos();
+  const inv = inventarios();
+  document.querySelectorAll('.slot').forEach(slot => {
+    const k = slot.dataset.kind;
+    let itens = [...state[k]];
+    if (k === 'sped') itens.sort((a, b) => (a.ym || '').localeCompare(b.ym || ''));
+    if (k === 'inv') itens.sort((a, b) => (a.ym || 'z').localeCompare(b.ym || 'z'));
+    slot.querySelector('.list').innerHTML = itens.map(f => {
+      let info = '';
+      if (f.loading) info = '<span class="tag">lendo…</span>';
+      else if (f.erro) info = `<span class="tag bad">${esc(f.erro)}</span>`;
+      else if (k === 'sped') info = `<span class="tag">${esc(mesLabel(f.ym))}</span>${f.fin === '1' ? '<span class="tag warn">retificadora</span>' : ''}${f.substituido ? '<span class="tag bad">substituído</span>' : ''}${f.blocoH.length ? `<span class="tag">Bloco H ${esc(f.blocoH.map(h => h.data).join(', '))}</span>` : ''}`;
+      else if (k === 'inv'){
+        const precisa = f.semTexto || f.semValor;
+        info = `<span class="tag">${esc(f.tipo)}</span>${f.ym ? `<span class="tag">${esc(mesLabel(f.ym))}</span>` : '<span class="tag bad">mês não identificado</span>'}`
+          + (precisa ? `<span class="tag warn">${f.semTexto ? 'PDF digitalizado' : 'total não encontrado'} — digite o total</span><br><input type="text" class="money" data-inv="${f.id}" placeholder="0,00" value="${f.valor != null ? fmt(f.valor) : ''}">`
+                     : ` <b style="display:inline">R$ ${fmt(f.valor)}</b>`)
+          + (!f.ym ? ` <input type="month" data-invmes="${f.id}">` : '');
+      } else info = `<span class="tag">${esc(f.formato)}</span><span class="tag">${f.lancs.length} lançamentos</span><span class="tag">${esc(f.meses.map(mesCurto).join(', '))}</span>${f.temSaldo ? `<span class="tag">saldo inicial ${fmt(f.si)}</span>` : '<span class="tag warn">sem saldo anterior</span>'}`;
+      return `<div class="file${f.substituido ? ' off' : ''}"><span class="x" data-del="${k}:${f.id}" title="Remover">✕</span><b>${esc(f.name)}</b>${info}</div>`;
+    }).join('');
+  });
+}
+
+function renderAll(){
+  renderSlots();
+  const T = calcularTudo();
+  const out = document.getElementById('out');
+  const c = T.cliente;
+  document.getElementById('cliente').innerHTML = c
+    ? `<b>${esc(c.nome)}</b> · CNPJ ${esc(cnpjFmt(c.cnpj))} · IE ${esc(c.ie)} · ${esc(c.uf)}`
+    : 'Carregue o razão, os SPEDs e os inventários. Os arquivos são lidos só neste computador.';
+  if (!T.res.length){
+    out.innerHTML = '<div class="card empty">Solte os arquivos nos quadros acima. O CMV aparece assim que houver SPED e inventário do mês.</div>';
+    return;
+  }
+  if (!mesSel || !T.meses.includes(mesSel)) mesSel = T.meses[T.meses.length - 1];
+
+  out.innerHTML = `
+    ${eiCard(T)}
+    <div class="tabs">
+      <button data-aba="lancar" class="${aba === 'lancar' ? 'on' : ''}">CMV a lançar</button>
+      <button data-aba="geral" class="${aba === 'geral' ? 'on' : ''}">Mês a mês</button>
+      <button data-aba="mes" class="${aba === 'mes' ? 'on' : ''}">Detalhe do mês</button>
+      <select id="mesSel">${T.meses.map(m => `<option value="${m}" ${m === mesSel ? 'selected' : ''}>${mesLabel(m)}</option>`).join('')}</select>
+      <span class="sp"></span>
+      <button id="pGeral">Relatório geral (PDF)</button>
+      <button id="xGeral">Relatório geral (Excel)</button>
+      <button id="pMes">Relatório do mês (PDF)</button>
+      <button id="xMes">Relatório do mês (Excel)</button>
+    </div>
+    ${aba === 'lancar' ? viewLancar(T, true) : aba === 'geral' ? viewGeral(T) : viewMes(T.res.find(r => r.ym === mesSel), true, T)}`;
+  bindOut(T);
+}
+
+// estoque inicial do período, digitável por tipo de estoque (ou total)
+function eiCampos(T){
+  const L0 = T.lancar[0];
+  if (L0 && L0.ym === T.meses[0]) return L0.grupos.map(g => ({tipo:g.tipo, razao:g.siRazao}));
+  const rz = razaoMes(T.R, T.meses[0]);
+  return [{tipo:'Total', razao:rz ? rz.si : null}];
+}
+function eiCard(T){
+  const m0 = T.meses[0], campos = eiCampos(T);
+  const inv0 = T.inv[prevYm(m0)];
+  return `<div class="card">
+    <h2>Estoque inicial de ${mesLabel(m0)} <small>saldo de abertura (balancete de ${mesLabel(prevYm(m0))}) · em branco usa o saldo do razão</small></h2>
+    <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end">
+      ${campos.map(c => `<label style="display:flex;flex-direction:column;gap:3px;font-size:13px">${esc(c.tipo === 'Total' ? 'Estoque total' : c.tipo)}
+        <input type="text" class="money" data-ei="${esc(c.tipo)}" style="width:170px;font-size:15px" value="${manual.eiTipo[c.tipo] != null ? fmt(manual.eiTipo[c.tipo]) : ''}" placeholder="${c.razao != null ? fmt(c.razao) : 'digite o valor'}">
+        <span class="src">${manual.eiTipo[c.tipo] != null ? (c.razao != null && Math.abs(c.razao - manual.eiTipo[c.tipo]) > opts.tol ? `razão: ${fmt(c.razao)} (dif. ${fmt(manual.eiTipo[c.tipo] - c.razao)})` : 'digitado') : c.razao != null ? 'usando o razão' : ''}</span></label>`).join('')}
+      <div><small class="src">Total usado</small><br><b>${fmt(T.res[0] ? T.res[0].ei : null)}</b></div>
+      ${inv0 ? `<div class="src">Inventário de ${mesLabel(prevYm(m0))}: ${fmt(inv0.valor)}</div>` : ''}
+    </div>
+  </div>`;
+}
+
+/* memória de cálculo do CMV a lançar: linhas [descrição, valor, nível] */
+function memoria(m, r){
+  const L = [];
+  m.grupos.forEach(g => {
+    L.push([`Estoque ${g.tipo === 'Total' ? 'total' : g.tipo}${g.contas.length ? ' — contas ' + g.contas.map(c => c.conta + ' ' + c.nome).join('; ') : ''}`, null, 'h']);
+    L.push([`Estoque inicial (${g.siFonte})`, g.siBase, 'a']);
+    const cats = {};
+    g.contas.forEach(c => Object.entries(c.cats).forEach(([k, x]) => { const a = cats[k] ||= {v:0, n:0}; a.v += x.v; a.n += x.n; }));
+    Object.keys(RCATS).forEach(k => { const x = cats[k]; if (x && Math.abs(x.v) > 0.004) L.push([`${x.v >= 0 ? '(+)' : '(−)'} ${RCATS[k]} no razão (${x.n} lançamento${x.n > 1 ? 's' : ''})`, x.v, 'a']); });
+    if (g.invs.length) g.invs.forEach(i => L.push([`(−) Estoque final — inventário ${i.tipo}: ${i.name}${i.data ? ' (' + i.data + ')' : ''}`, i.valor != null ? -i.valor : null, 'a']));
+    else L.push(['(−) Estoque final: inventário não carregado', null, 'a']);
+    L.push(['= CMV do mês', g.cmvMes, 't']);
+    g.contas.forEach(c => c.cmvLancs.forEach(l => L.push([`(−) Já lançado em ${l.data} na conta ${c.conta}: ${l.hist}`, -(l.cred - l.deb), 'a'])));
+    if (!g.contas.some(c => c.cmvLancs.length)) L.push(['(−) Já lançado no razão: nenhum lançamento de CMV no mês', 0, 'a']);
+    L.push(['= Diferença do mês', g.difMes, 't']);
+    if (Math.abs(g.pendAnt) > opts.tol){
+      L.push([`Saldo inicial do razão${g.contas.length ? ' (contas ' + g.contas.map(c => c.conta).join(', ') + ')' : ''}`, g.siRazao, 'a']);
+      L.push([`(−) Estoque inicial usado (${g.siFonte})`, -g.siBase, 'a']);
+      L.push([g.primeiro ?'= Diferença de abertura ainda não ajustada' : '= Pendência de meses anteriores ainda não ajustada', g.pendAnt, 't']);
+    }
+    const t = g.total;
+    L.push([t == null ? '= Total a lançar' : Math.abs(t) <= opts.tol ? '= Total a lançar: nada (razão fecha com o inventário)' : t > 0 ? `= Total a lançar: D ${g.contaDeb || 'CMV'} / C ${g.contaCred}` : `= Total a estornar: D ${g.contaCred} / C ${g.contaDeb || 'CMV'}`, t, 't']);
+  });
+  if (r && r.sped){
+    L.push(['Conferência pelo SPED (estoque inicial + compras − estoque final)', null, 'h']);
+    L.push([`Estoque inicial (${r.eiFonte || 'não informado'})`, r.ei, 'a']);
+    L.push([`(+) Compras do SPED: valor contábil ${fmt(r.bruto.compra)}${opts.dedIpi ? ' − IPI ' + fmt(r.bruto.ipi) : ''}${opts.dedIcms ? ' − ICMS ' + fmt(r.bruto.icms) : ''}`, r.tot.compra, 'a']);
+    if (r.tot.frete) L.push(['(+) Fretes sobre compras', r.tot.frete, 'a']);
+    if (r.tot.outent) L.push(['(+) Outras entradas', r.tot.outent, 'a']);
+    if (r.tot.devcomp) L.push(['(−) Devoluções de compras', -r.tot.devcomp, 'a']);
+    if (r.tot.outsai) L.push(['(−) Outras saídas', -r.tot.outsai, 'a']);
+    if (r.piscof) L.push(['(−) Créditos de PIS/COFINS lançados no razão', -r.piscof, 'a']);
+    if (r.ajuste) L.push(['(±) Ajuste manual', r.ajuste, 'a']);
+    L.push(['(−) Estoque final (inventário)', r.ef != null ? -r.ef : null, 'a']);
+    L.push(['= CMV apurado pelo SPED', r.cmv, 't']);
+    if (r.cmv != null && m.cmvMes != null) L.push(['Diferença entre o CMV do mês (razão) e o CMV apurado pelo SPED', m.cmvMes - r.cmv, 'a']);
+  }
+  return L;
+}
+function memoriaHTML(m, r){
+  return `<div class="card"><h2>Memória de cálculo — ${mesLabel(m.ym)}</h2><table>
+    ${memoria(m, r).map(([d, v, n]) => n === 'h' ? `<tr><td colspan="2" style="padding-top:14px"><b>${esc(d)}</b></td></tr>`
+      : n === 'o' ? `<tr><td colspan="2" class="src">${esc(d)}</td></tr>`
+      : `<tr${n === 't' ? ' style="font-weight:700"' : ''}><td style="padding-left:${n === 'c' ? 36 : 18}px">${esc(d)}</td>${td(v)}</tr>`).join('')}
+  </table></div>`;
+}
+
+function viewLancar(T, editavel){
+  const L = T.lancar;
+  if (!L.length) return '<div class="card empty">Carregue o razão da conta de estoque para calcular quanto lançar de CMV em cada mês.</div>';
+  const contas = [...new Map(L.flatMap(m => m.grupos.flatMap(g => g.contas)).map(c => [c.conta, c])).values()];
+  const tipos = ['Veículos', 'Peças', 'Estoque'];
+  const sit = v => v == null ? '' : Math.abs(v) <= opts.tol ? ' <span class="status ok">ok</span>' : ` <span class="status bad">${v > 0 ? 'lançar' : 'estornar'}</span>`;
+  const linhaG = (m, g, sub, mostraMes) => `<tr${sub ? '' : ' class="total"'}>
+    <td>${mostraMes ? `<b>${mesLabel(m.ym)}</b>` : ''}</td>
+    <td>${esc(g.tipo)}${g.contas && g.contas.length ? `<div class="src">${g.contas.map(c => esc(c.conta)).join(', ')}</div>` : ''}</td>
+    <td class="n${g.siBase < -0.004 ? ' neg' : ''}">${fmt(g.siBase)}${g.siFonte ? `<div class="src">${esc(g.siFonte)}</div>` : ''}</td>
+    ${td(g.mov)}${td(g.ef != null ? -g.ef : null)}${td(g.cmvMes, 'b')}${td(g.lanc)}
+    <td class="n">${fmt(g.difMes)}${sit(g.difMes)}</td>${td(g.pendAnt)}
+    <td class="n"><b>${fmt(g.total)}</b>${sit(g.total)}</td>
+    <td class="src">${g.total != null && Math.abs(g.total) > opts.tol && g.contaCred ? (g.total > 0 ? `D ${esc(g.contaDeb || 'CMV')} / C ${esc(g.contaCred)}` : `D ${esc(g.contaCred)} / C ${esc(g.contaDeb || 'CMV')}`) : ''}</td></tr>`;
+  const soma = k => L.every(m => m[k] != null) ? L.reduce((s, m) => s + m[k], 0) : null;
+  return `<div class="card">
+    <h2>Quanto lançar de CMV em cada mês <small>estoque inicial + movimento do razão − inventário final</small></h2>
+    <div class="scroll"><table>
+      <tr><th>Mês</th><th>Estoque / contas</th><th class="n">Estoque inicial</th><th class="n">(±) Movimento sem CMV</th><th class="n">(−) Inventário final</th>
+        <th class="n">= CMV do mês</th><th class="n">Já lançado</th><th class="n">Diferença do mês</th><th class="n">Pendência anterior</th><th class="n">Total a lançar</th><th>Lançamento</th></tr>
+      ${L.map(m => m.grupos.length > 1
+        ? m.grupos.map((g, i) => linhaG(m, g, true, i === 0)).join('') + linhaG(m, {...m, tipo:'Total do mês', contas:[], siFonte:'', contaCred:''}, false, false)
+        : linhaG(m, m.grupos[0], false, true)).join('')}
+      <tr class="total"><td>Acumulado</td><td></td><td></td>${td(soma('mov'))}<td></td>${td(soma('cmvMes'))}${td(soma('lanc'))}${td(soma('difMes'))}<td></td><td></td><td></td></tr>
+    </table></div>
+    <div class="src" style="margin-top:6px">Estoque inicial: no 1º mês, o valor digitado (ou o saldo do razão); nos demais, o inventário do mês anterior. Movimento sem CMV = compras, créditos de IPI/PIS/COFINS, devoluções e demais lançamentos do mês no razão.
+      <b>Diferença do mês</b> = CMV do mês − já lançado. <b>Pendência anterior</b> = saldo inicial do razão − estoque inicial usado (o que não foi ajustado antes).
+      <b>Total a lançar</b> = o que lançar agora para o razão fechar com o inventário. Positivo é complemento de CMV; negativo é estorno. O débito do lançamento é a contrapartida que o razão já usa para o CMV.</div>
+    ${L.some(m => m.grupos.length > 1 && m.grupos.some(g => g.cmvMes != null && g.cmvMes < -opts.tol)) ? `<div class="card avisos" style="margin:10px 0 0">Há mês com CMV negativo em um tipo de estoque (${L.flatMap(m => m.grupos.filter(g => g.cmvMes != null && g.cmvMes < -opts.tol).map(g => g.tipo + ' ' + mesCurto(m.ym))).join(', ')}). Normalmente isso indica compras desse estoque lançadas na conta do outro. Confira no razão antes de lançar por tipo. O total do mês continua valendo.</div>` : ''}
+    ${editavel && contas.length > 1 ? `<details><summary>Qual inventário corresponde a cada conta</summary><div class="map">
+      ${contas.map(c => `<label>${esc(c.conta)} ${esc(c.nome)}<select data-conta="${esc(c.conta)}">${tipos.map(t => `<option ${t === c.tipo ? 'selected' : ''}>${t}</option>`).join('')}</select></label>`).join('')}
+    </div><div class="src">Quando o inventário do mês tem os mesmos tipos das contas, o CMV é calculado conta a conta. Se não tiver, é calculado pelo total.</div></details>` : ''}
+  </div>`;
+}
+
+function avisosMes(r){
+  const a = [];
+  if (!r.sped) a.push('Falta o SPED deste mês.');
+  if (!r.inv) a.push('Falta o inventário deste mês (estoque final).');
+  else r.inv.usados.forEach(i => { if (i.valor == null) a.push(`Digite o total do inventário <b>${esc(i.name)}</b>.`); });
+  if (r.ei == null) a.push('Falta o estoque inicial: carregue o razão ou o inventário do mês anterior, ou digite o valor.');
+  if (r.inv){ const tipos = r.inv.usados.map(i => i.tipo); if (new Set(tipos).size !== tipos.length) a.push('Há dois inventários do mesmo tipo neste mês. Confira se não está duplicado.'); }
+  return a;
+}
+
+function viewGeral(T){
+  const rs = T.res, prim = rs[0], ult = rs[rs.length - 1];
+  const soma = k => rs.reduce((s, r) => s + (r[k] || 0), 0);
+  const algumCont = rs.some(r => r.cmvCont != null), algumRz = rs.some(r => r.rz && r.rz.coberto);
+  const pend = rs.flatMap(r => avisosMes(r).map(a => `<b>${mesCurto(r.ym)}</b>: ${a}`));
+  return `
+  ${pend.length ? `<div class="card avisos">${pend.join('<br>')}</div>` : ''}
+  <div class="card">
+    <h2>CMV e estoque mês a mês <small>clique em um mês para ver o detalhe</small></h2>
+    <div class="scroll"><table>
+      <tr><th>Mês</th><th class="n">Estoque inicial</th><th class="n">(+) Compras líquidas</th><th class="n">(−) Estoque final</th><th class="n">= CMV apurado</th>
+        ${algumCont ? '<th class="n">CMV contabilizado</th><th class="n">Diferença</th>' : ''}
+        ${algumRz ? '<th class="n">Saldo final razão</th><th class="n">Dif. estoque</th>' : ''}
+        <th class="n">Vendas s/ IPI e ST</th><th class="n">CMV/vendas</th></tr>
+      ${rs.map(r => `<tr class="click" data-mes="${r.ym}">
+        <td><b>${mesLabel(r.ym)}</b><div class="src">${esc(r.eiFonte)}</div></td>
+        ${td(r.ei)}${td(r.sped ? r.comprasLiq : null)}${td(r.ef)}${td(r.cmv, 'b')}
+        ${algumCont ? td(r.cmvCont) + `<td class="n">${r.cmv != null && r.cmvCont != null ? fmt(r.cmvCont - r.cmv) + ' ' + stat(r.cmvCont - r.cmv) : '—'}</td>` : ''}
+        ${algumRz ? td(r.rz && r.rz.coberto ? r.rz.sf : null) + `<td class="n">${r.rz && r.rz.coberto && r.ef != null ? fmt(r.rz.sf - r.ef) + ' ' + stat(r.rz.sf - r.ef) : '—'}</td>` : ''}
+        ${td(r.vendas || null)}<td class="n">${r.cmv != null && r.vendas ? (r.cmv / r.vendas * 100).toFixed(1) + '%' : '—'}</td></tr>`).join('')}
+      <tr class="total"><td>Acumulado</td>${td(prim.ei)}${td(soma('comprasLiq'))}${td(ult.ef)}${td(rs.every(r => r.cmv != null) ? soma('cmv') : null)}
+        ${algumCont ? td(soma('cmvCont')) + '<td></td>' : ''}${algumRz ? '<td></td><td></td>' : ''}${td(soma('vendas'))}<td></td></tr>
+    </table></div>
+    <div class="src" style="margin-top:6px">CMV apurado = estoque inicial + compras líquidas − estoque final. Compras líquidas = compras do SPED − ${[opts.dedIpi && 'IPI', opts.dedIcms && 'ICMS'].filter(Boolean).join(' e ') || 'nada'} ${opts.pisCofRazao ? '− créditos de PIS/COFINS lançados no razão ' : ''}− devoluções ± ajustes.</div>
+  </div>
+  <div class="card">
+    <h2>Estoque mês a mês <small>inventários por tipo</small></h2>
+    ${tabelaEstoque(T)}
+  </div>
+  ${opcoesCard()}`;
+}
+
+function tabelaEstoque(T){
+  const meses = Object.keys(T.inv).sort();
+  if (!meses.length) return '<div class="empty">Nenhum inventário carregado.</div>';
+  const tipos = [...new Set(meses.flatMap(m => T.inv[m].usados.map(i => i.tipo)))];
+  return `<div class="scroll"><table>
+    <tr><th>Data do inventário</th>${tipos.map(t => `<th class="n">${esc(t)}</th>`).join('')}<th class="n">Total</th><th class="n">Variação</th></tr>
+    ${meses.map((m, i) => { const inv = T.inv[m], ant = i ? T.inv[meses[i - 1]].valor : null;
+      return `<tr><td>${mesLabel(m)}</td>${tipos.map(t => { const it = inv.usados.filter(x => x.tipo === t); return td(it.length ? it.reduce((s, x) => s + (x.valor || 0), 0) : null); }).join('')}
+        ${td(inv.valor, 'b')}${td(inv.valor != null && ant != null ? inv.valor - ant : null)}</tr>`; }).join('')}
+  </table></div>`;
+}
+
+function opcoesCard(){
+  return `<div class="card"><h2>Critérios do cálculo</h2>
+    <div class="opts">
+      <label><input type="checkbox" id="dedIpi" ${opts.dedIpi ? 'checked' : ''}> Tirar o IPI recuperável das compras</label>
+      <label><input type="checkbox" id="dedIcms" ${opts.dedIcms ? 'checked' : ''}> Tirar o ICMS recuperável das compras</label>
+      <label><input type="checkbox" id="pisCofRazao" ${opts.pisCofRazao ? 'checked' : ''}> Tirar os créditos de PIS/COFINS lançados no razão</label>
+      <label>Tolerância das conferências: R$ <input type="number" id="tol" value="${opts.tol}" step="0.01" min="0" style="width:70px"></label>
+    </div>
+    <div class="src">O estoque inicial de cada mês vem do saldo inicial do razão. Sem razão para o mês, vem do inventário do mês anterior. Também pode ser digitado no detalhe do mês.</div>
+  </div>`;
+}
+
+function viewMes(r, editavel, T){
+  if (!r) return '';
+  const av = avisosMes(r);
+  const ml = T && T.lancar.find(m => m.ym === r.ym);
+  const inp = (id, v, ph) => editavel ? `<input type="text" class="money" id="${id}" value="${v != null ? fmt(v) : ''}" placeholder="${ph}">` : '';
+  return `
+  ${av.length ? `<div class="card avisos">${av.join('<br>')}</div>` : ''}
+  <div class="kpi">
+    <div><small>Estoque inicial</small><b>${fmt(r.ei)}</b></div>
+    <div><small>Compras líquidas</small><b>${r.sped ? fmt(r.comprasLiq) : '—'}</b></div>
+    <div><small>Estoque final</small><b>${fmt(r.ef)}</b></div>
+    <div class="main"><small>CMV de ${mesLabel(r.ym)}</small><b>${fmt(r.cmv)}</b></div>
+    ${r.cmvCont != null ? `<div><small>CMV contabilizado (razão)</small><b>${fmt(r.cmvCont)}</b></div>` : ''}
+  </div>
+  <div class="grid2">
+    <div class="card">
+      <h2>Apuração do CMV — ${mesLabel(r.ym)}</h2>
+      <table>
+        <tr><td>Estoque inicial<div class="src">${esc(r.eiFonte || 'não informado')}${editavel ? ' · digitar: ' + inp('eiManual', manual.ei[r.ym], 'automático') : ''}</div></td>${td(r.ei)}</tr>
+        <tr><td>(+) Compras<div class="src">SPED · valor contábil ${fmt(r.bruto.compra)}${opts.dedIpi ? ' − IPI ' + fmt(r.bruto.ipi) : ''}${opts.dedIcms ? ' − ICMS ' + fmt(r.bruto.icms) : ''}</div></td>${td(r.sped ? r.tot.compra : null)}</tr>
+        ${r.tot.frete ? `<tr><td>(+) Fretes sobre compras</td>${td(r.tot.frete)}</tr>` : ''}
+        ${r.tot.outent ? `<tr><td>(+) Outras entradas</td>${td(r.tot.outent)}</tr>` : ''}
+        <tr><td>(−) Devoluções de compras</td>${td(r.sped ? -r.tot.devcomp : null)}</tr>
+        ${r.tot.outsai ? `<tr><td>(−) Outras saídas</td>${td(-r.tot.outsai)}</tr>` : ''}
+        ${r.piscof ? `<tr><td>(−) Créditos de PIS/COFINS<div class="src">lançados no razão</div></td>${td(-r.piscof)}</tr>` : ''}
+        <tr><td>(±) Ajuste manual ${inp('ajusteMes', r.ajuste || null, '0,00')}</td>${td(r.ajuste)}</tr>
+        <tr><td>(−) Estoque final<div class="src">${r.inv ? r.inv.usados.map(i => esc(i.tipo) + ' ' + fmt(i.valor)).join(' + ') : 'inventário não carregado'}</div></td>${td(r.ef != null ? -r.ef : null)}</tr>
+        <tr class="total big"><td>= CMV</td>${td(r.cmv)}</tr>
+        ${r.vendas && r.cmv != null ? `<tr><td class="src">Vendas sem IPI e ST (informativo) · CMV/vendas</td><td class="n src">${fmt(r.vendas)} · ${(r.cmv / r.vendas * 100).toFixed(1)}%</td></tr>` : ''}
+      </table>
+    </div>
+    <div class="card">
+      <h2>Conferência com o razão</h2>
+      ${r.conc.length ? `<table>
+        <tr><th>Item</th><th class="n">Fiscal / inventário</th><th class="n">Razão</th><th class="n">Diferença</th><th></th></tr>
+        ${r.conc.map(c => `<tr><td>${esc(c.nome)}${c.obs ? `<div class="src">${esc(c.obs)}</div>` : ''}</td>${td(c.a)}${td(c.b)}${td(c.d)}<td>${stat(c.d)}</td></tr>`).join('')}
+      </table>` : '<div class="empty">Sem razão para este mês.</div>'}
+      ${r.rz && r.rz.coberto ? movRazao(r.rz) : ''}
+    </div>
+  </div>
+  ${ml ? memoriaHTML(ml, r) : ''}
+  ${r.notas ? notasCard(r.notas) : ''}
+  ${r.sped ? cfopCard(r, editavel) : ''}
+  ${r.inv ? `<div class="card"><h2>Inventários de ${mesLabel(r.ym)}</h2><table>
+     <tr><th>Arquivo</th><th>Tipo</th><th>Data</th><th class="n">Itens</th><th class="n">Total</th><th></th></tr>
+     ${r.inv.itens.map(i => `<tr><td>${esc(i.name)}</td><td>${esc(i.tipo)}</td><td>${esc(i.data || '')}</td><td class="n">${i.itens ?? ''}</td>${td(i.valor)}<td class="src">${r.inv.usados.includes(i) ? '' : 'só conferência'}</td></tr>`).join('')}
+   </table></div>` : ''}`;
+}
+
+function movRazao(rz){
+  const linhas = [['saldo', rz.si, null]];
+  Object.keys(RCATS).filter(k => k !== 'saldo').forEach(k => { if (rz.deb[k] || rz.cred[k]) linhas.push([k, rz.deb[k] || 0, rz.cred[k] || 0]); });
+  return `<h2 style="margin-top:16px">Movimento do razão <small>por tipo de lançamento</small></h2><table>
+    <tr><th>Tipo</th><th class="n">Débito</th><th class="n">Crédito</th></tr>
+    ${linhas.map(([k, d, c]) => `<tr><td>${RCATS[k]}</td>${td(d)}${c == null ? '<td></td>' : td(c)}</tr>`).join('')}
+    <tr class="total"><td>Saldo final</td>${td(rz.sf)}<td></td></tr></table>
+    <div class="src">O tipo vem do histórico do lançamento (compras, CMV, créditos de impostos, transferências).</div>`;
+}
+
+function notasCard(n){
+  const lista = (arr, cols) => arr.length ? `<table><tr>${cols.map(c => `<th${c[2] ? ' class="n"' : ''}>${c[0]}</th>`).join('')}</tr>
+    ${arr.slice(0, 200).map(x => `<tr>${cols.map(c => c[2] ? td(c[1](x)) : `<td>${esc(c[1](x))}</td>`).join('')}</tr>`).join('')}</table>
+    ${arr.length > 200 ? `<div class="src">… mais ${arr.length - 200}</div>` : ''}` : '<div class="src">Nenhuma.</div>';
+  const ok = !n.soSped.length && !n.soRazao.length && !n.difs.length;
+  return `<div class="card"><h2>Compras nota a nota: SPED × razão <small>${n.nSped} notas no SPED · ${n.nRazao} no razão</small></h2>
+    ${ok ? '<span class="status ok">todas as notas de compra conferem</span>' : ''}
+    ${n.soSped.length ? `<h3 style="font-size:14px">Notas no SPED sem lançamento no razão (${n.soSped.length})</h3>${lista(n.soSped, [['Nota', x => x.num], ['Fornecedor', x => x.part], ['Entrada', x => x.data.replace(/^(\d\d)(\d\d)(\d{4})$/, '$1/$2/$3')], ['Valor', x => x.v, 1]])}` : ''}
+    ${n.soRazao.length ? `<h3 style="font-size:14px">Lançamentos no razão sem nota no SPED (${n.soRazao.length})</h3>${lista(n.soRazao, [['Nota', x => x.num], ['Data', x => x.data], ['Histórico', x => x.hist], ['Valor', x => x.v, 1]])}` : ''}
+    ${n.difs.length ? `<h3 style="font-size:14px">Valores diferentes (${n.difs.length})</h3>${lista(n.difs, [['Nota', x => x.num], ['Fornecedor', x => x.part], ['SPED', x => x.v, 1], ['Razão', x => x.vr, 1], ['Diferença', x => x.vr - x.v, 1]])}` : ''}
+    ${n.semNum ? `<div class="src">Lançamentos de compra sem número de nota no histórico: ${fmt(n.semNum)}</div>` : ''}
+  </div>`;
+}
+
+function cfopCard(r, editavel){
+  const linhas = r.sped.linhas.filter(a => a.ind === '0' || catDe(a.cfop) !== 'ignorar');
+  const opt = c => Object.entries(CATS).map(([k, v]) => `<option value="${k}" ${k === c ? 'selected' : ''}>${v.label}</option>`).join('');
+  return `<div class="card"><h2>Entradas do SPED por CFOP — ${mesLabel(r.ym)} <small>${r.sped.ndocs} documentos · ${esc(r.sped.name)}</small></h2>
+    <div class="scroll"><table>
+      <tr><th>CFOP</th><th>Tratamento</th><th class="n">Docs</th><th class="n">Valor contábil</th><th class="n">IPI</th><th class="n">ICMS</th><th class="n">ICMS-ST</th><th class="n">Custo</th></tr>
+      ${linhas.map(a => { const c = catDe(a.cfop), s = CATS[c].sinal; return `<tr>
+        <td><b>${a.cfop}</b> <span class="cfop-desc">${esc(DESCR[a.cfop] || (a.ind === '0' ? 'Entrada' : 'Saída'))}</span></td>
+        <td>${editavel ? `<select data-cfop="${a.cfop}">${opt(c)}</select>` : CATS[c].label}</td>
+        <td class="n">${a.n}</td>${td(a.opr)}${td(a.ipi)}${td(a.icms)}${td(a.st)}<td class="n${s < 0 ? ' neg' : ''}">${s ? fmt(s * custoLinha(a)) : '—'}</td></tr>`; }).join('')}
+    </table></div>
+    <div class="src">Valor contábil = VL_OPR do C190/D190. Notas canceladas, denegadas e inutilizadas ficam de fora. O tratamento de cada CFOP vale para todos os meses e fica salvo para este CNPJ.</div>
+  </div>`;
+}
+
+function bindOut(T){
+  const on = (id, ev, fn) => { const el = document.getElementById(id); if (el) el.addEventListener(ev, fn); };
+  document.querySelectorAll('[data-aba]').forEach(b => b.addEventListener('click', () => { aba = b.dataset.aba; renderAll(); }));
+  document.querySelectorAll('tr[data-mes]').forEach(tr => tr.addEventListener('click', () => { mesSel = tr.dataset.mes; aba = 'mes'; renderAll(); }));
+  on('mesSel', 'change', e => { mesSel = e.target.value; aba = 'mes'; renderAll(); });
+  const salvaEi = () => { if (T.cliente) lsSet('cmv.ei.' + T.cliente.cnpj, {ei:manual.ei, eiTipo:manual.eiTipo}); };
+  on('eiManual', 'change', e => { if (e.target.value.trim()) manual.ei[mesSel] = numBR(e.target.value); else delete manual.ei[mesSel]; salvaEi(); renderAll(); });
+  document.querySelectorAll('input[data-ei]').forEach(el => el.addEventListener('change', () => {
+    const m0 = T.meses[0], campos = eiCampos(T);
+    if (el.value.trim()) manual.eiTipo[el.dataset.ei] = numBR(el.value); else delete manual.eiTipo[el.dataset.ei];
+    // o estoque inicial total (usado na apuração pelo SPED) soma os digitados e o razão dos não digitados
+    if (campos.some(c => manual.eiTipo[c.tipo] != null)) manual.ei[m0] = campos.reduce((s, c) => s + (manual.eiTipo[c.tipo] ?? c.razao ?? 0), 0);
+    else delete manual.ei[m0];
+    salvaEi(); renderAll();
+  }));
+  document.querySelectorAll('select[data-conta]').forEach(el => el.addEventListener('change', () => {
+    contaTipo[el.dataset.conta] = el.value;
+    if (T.cliente) lsSet('cmv.contas.' + T.cliente.cnpj, contaTipo);
+    renderAll();
+  }));
+  on('ajusteMes', 'change', e => { manual.ajuste[mesSel] = numBR(e.target.value); renderAll(); });
+  on('tol', 'change', e => { opts.tol = Math.abs(+e.target.value || 0); lsSet('cmv.opts', opts); renderAll(); });
+  ['dedIcms', 'dedIpi', 'pisCofRazao'].forEach(k => on(k, 'change', e => { opts[k] = e.target.checked; lsSet('cmv.opts', opts); renderAll(); }));
+  document.querySelectorAll('select[data-cfop]').forEach(el => el.addEventListener('change', () => {
+    const cfop = el.dataset.cfop;
+    if (el.value === catPadrao(cfop)) delete overrides[cfop]; else overrides[cfop] = el.value;
+    if (T.cliente) lsSet('cmv.cfop.' + T.cliente.cnpj, overrides);
+    renderAll();
+  }));
+  const base = 'CMV ' + (T.cliente ? T.cliente.nome.split(' ').slice(0, 2).join(' ') + ' ' : '');
+  on('pGeral', 'click', () => imprimir(relGeral(T), base + mesCurto(T.meses[0]).replace('/', '-') + ' a ' + mesCurto(T.meses[T.meses.length - 1]).replace('/', '-')));
+  on('pMes', 'click', () => imprimir(relMes(T, mesSel), base + mesCurto(mesSel).replace('/', '-')));
+  on('xGeral', 'click', () => excelGeral(T));
+  on('xMes', 'click', () => excelMes(T, mesSel));
+}
+
+document.querySelector('.slots').addEventListener('click', e => {
+  const x = e.target.closest('[data-del]');
+  if (!x) return;
+  const [k, id] = x.dataset.del.split(':');
+  state[k] = state[k].filter(f => f.id != id);
+  renderAll();
+});
+document.querySelector('.slots').addEventListener('change', e => {
+  const v = e.target.closest('[data-inv]'), m = e.target.closest('[data-invmes]');
+  if (v){ const f = state.inv.find(x => x.id == v.dataset.inv); f.valor = v.value.trim() ? numBR(v.value) : null; }
+  if (m){ const f = state.inv.find(x => x.id == m.dataset.invmes); f.ym = m.value || null; }
+  renderAll();
+});
+document.getElementById('bClear').addEventListener('click', () => {
+  state.razao = []; state.sped = []; state.inv = []; manual.ei = {}; manual.ajuste = {}; manual.eiTipo = {}; mesSel = null; renderAll();
+});
+
+/* ---------- relatórios ---------- */
+function cabecalho(T, titulo){
+  const c = T.cliente || {};
+  return `<h1>${esc(titulo)}</h1><div class="cab">${esc(c.nome || '')}${c.cnpj ? ' · CNPJ ' + esc(cnpjFmt(c.cnpj)) : ''}${c.ie ? ' · IE ' + esc(c.ie) : ''}<br>
+    Gerado em ${new Date().toLocaleString('pt-BR')}</div>`;
+}
+function relGeral(T){
+  const rs = T.res;
+  return `<div class="rep">${cabecalho(T, `CMV e estoque — ${mesLabel(rs[0].ym)} a ${mesLabel(rs[rs.length - 1].ym)}`)}
+    ${viewLancar(T, false)}
+    ${viewGeral(T).replace(/<div class="card">\s*<h2>Critérios[\s\S]*$/, '').replace(/<small>clique em um mês[^<]*<\/small>/, '')}
+    <h2>Critérios</h2><div>Compras do SPED pelo valor contábil dos CFOPs de compra${opts.dedIpi ? ', sem o IPI recuperável' : ''}${opts.dedIcms ? ', sem o ICMS recuperável' : ''}${opts.pisCofRazao ? ', sem os créditos de PIS/COFINS lançados no razão' : ''}, menos as devoluções de compra. Estoque final pelo total dos inventários. Tolerância das conferências: R$ ${fmt(opts.tol)}.</div>
+    ${rs.map(r => `<div class="pb"></div><h2>${mesLabel(r.ym)}</h2>${viewMes(r, false, T)}`).join('')}
+  </div>`;
+}
+function relMes(T, ym){
+  const L = T.lancar.filter(m => m.ym === ym);
+  return `<div class="rep">${cabecalho(T, 'CMV e estoque — ' + mesLabel(ym))}${L.length ? viewLancar({...T, lancar:L}, false) : ''}${viewMes(T.res.find(r => r.ym === ym), false, T)}</div>`;
+}
+/* salvar arquivos: no claude.ai usa o recurso de downloads; aberto localmente, baixa direto */
+const emArtifact = !!(window.claude && typeof window.claude.use === 'function');
+let downloadsNs;
+async function salvarArquivo(filename, data){
+  if (emArtifact){
+    if (downloadsNs === undefined) downloadsNs = await window.claude.use('downloads');
+    if (!downloadsNs){ avisoTopo('Este navegador não permite baixar arquivos daqui. Abra o arquivo CMV Estoque.html no computador para salvar os relatórios.'); return; }
+    try { await downloadsNs.save({filename, data}); }
+    catch(e){ if (e && e.code !== 'declined') avisoTopo('Não foi possível salvar o arquivo (' + (e.message || e.code) + ').'); }
+    return;
+  }
+  const url = URL.createObjectURL(data instanceof Blob ? data : new Blob([data]));
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+function avisoTopo(msg){
+  const out = document.getElementById('out');
+  const d = document.createElement('div');
+  d.className = 'card avisos'; d.textContent = msg;
+  out.prepend(d);
+}
+function salvarXlsx(wb, nome){
+  salvarArquivo(nome, new Blob([XLSX.write(wb, {bookType:'xlsx', type:'array'})]));
+}
+function imprimir(html, nome){
+  if (emArtifact){
+    // o claude.ai não abre a janela de impressão: baixa uma página que já abre imprimindo
+    const css = document.querySelector('style').textContent;
+    const doc = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(nome)}</title><style>${css}
+      body{background:#fff;color:#000} .rep{max-width:1200px;margin:0 auto}</style></head><body>${html}
+      <script>window.addEventListener('load', () => setTimeout(() => window.print(), 300));<\/script></body></html>`;
+    salvarArquivo(nome + '.html', doc);
+    return;
+  }
+  const p = document.getElementById('print');
+  p.innerHTML = html;
+  document.body.classList.add('printing');
+  const fim = () => { document.body.classList.remove('printing'); window.removeEventListener('afterprint', fim); };
+  window.addEventListener('afterprint', fim);
+  setTimeout(() => window.print(), 50);
+}
+
+function linhasApuracao(r){
+  return [['Estoque inicial (' + (r.eiFonte || 'não informado') + ')', r.ei], ['(+) Compras', r.tot.compra], ['(+) Fretes sobre compras', r.tot.frete],
+    ['(+) Outras entradas', r.tot.outent], ['(-) Devoluções de compras', -r.tot.devcomp], ['(-) Outras saídas', -r.tot.outsai],
+    ['(-) Créditos de PIS/COFINS (razão)', -r.piscof], ['(±) Ajuste manual', r.ajuste], ['(-) Estoque final (inventário)', r.ef != null ? -r.ef : null],
+    ['= CMV apurado', r.cmv], ['CMV contabilizado (razão)', r.cmvCont]];
+}
+function sheet(wb, nome, aoa, cols){
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = cols.map(w => ({wch:w}));
+  Object.keys(ws).forEach(k => { const c = ws[k]; if (c && c.t === 'n') c.z = '#,##0.00;[Red]-#,##0.00'; });
+  XLSX.utils.book_append_sheet(wb, ws, nome);
+}
+const cabXls = T => T.cliente ? [[T.cliente.nome], ['CNPJ ' + cnpjFmt(T.cliente.cnpj)], []] : [];
+const nArq = (T, s) => ('CMV ' + (T.cliente ? T.cliente.nome.split(' ').slice(0, 2).join(' ') + ' ' : '') + s).replace(/[\\/:*?"<>|]/g, '') + '.xlsx';
+const rnd = v => v == null ? null : r2(v);
+function abaCfops(rs){
+  return [['Mês', 'Operação', 'CFOP', 'Descrição', 'Tratamento', 'Docs', 'Valor contábil', 'IPI', 'ICMS', 'ICMS-ST', 'Custo considerado'],
+    ...rs.filter(r => r.sped).flatMap(r => r.sped.linhas.map(a => { const c = catDe(a.cfop);
+      return [mesLabel(r.ym), a.ind === '0' ? 'Entrada' : 'Saída', a.cfop, DESCR[a.cfop] || '', CATS[c].label, a.n, rnd(a.opr), rnd(a.ipi), rnd(a.icms), rnd(a.st), CATS[c].sinal ? rnd(CATS[c].sinal * custoLinha(a)) : null]; }))];
+}
+function abaConc(rs){
+  return [['Mês', 'Conferência', 'Fiscal / inventário', 'Razão', 'Diferença', 'Situação'],
+    ...rs.flatMap(r => r.conc.map(c => [mesLabel(r.ym), c.nome, rnd(c.a), rnd(c.b), rnd(c.d), c.d == null ? 'sem dados' : Math.abs(c.d) <= opts.tol ? 'confere' : 'diferença']))];
+}
+function abaNotas(rs){
+  const out = [['Mês', 'Situação', 'Nota', 'Fornecedor / histórico', 'Data', 'Valor SPED', 'Valor razão']];
+  rs.forEach(r => { if (!r.notas) return; const m = mesLabel(r.ym);
+    r.notas.soSped.forEach(n => out.push([m, 'Só no SPED', n.num, n.part, n.data.replace(/^(\d\d)(\d\d)(\d{4})$/, '$1/$2/$3'), rnd(n.v), null]));
+    r.notas.soRazao.forEach(n => out.push([m, 'Só no razão', n.num, n.hist, n.data, null, rnd(n.v)]));
+    r.notas.difs.forEach(n => out.push([m, 'Valor diferente', n.num, n.part, '', rnd(n.v), rnd(n.vr)])); });
+  return out;
+}
+function abaLancar(L){
+  const out = [['Mês', 'Estoque', 'Contas', 'Estoque inicial', 'Origem do estoque inicial', 'Movimento sem CMV', 'Inventário final', 'CMV do mês', 'Já lançado', 'Diferença do mês', 'Saldo inicial razão', 'Pendência anterior', 'Total a lançar', 'Débito', 'Crédito']];
+  L.forEach(m => {
+    m.grupos.forEach(g => out.push([mesLabel(m.ym), g.tipo, g.contas.map(c => c.conta).join(', '), rnd(g.siBase), g.siFonte, rnd(g.mov), rnd(g.ef), rnd(g.cmvMes), rnd(g.lanc), rnd(g.difMes), rnd(g.siRazao), rnd(g.pendAnt), rnd(g.total),
+      g.total > 0 ? g.contaDeb : g.contaCred, g.total > 0 ? g.contaCred : g.contaDeb]));
+    if (m.grupos.length > 1) out.push([mesLabel(m.ym), 'Total do mês', '', rnd(m.siBase), '', rnd(m.mov), rnd(m.ef), rnd(m.cmvMes), rnd(m.lanc), rnd(m.difMes), rnd(m.siRazao), rnd(m.pendAnt), rnd(m.total), '', '']);
+  });
+  return out;
+}
+function abaMemoria(T, L){
+  const out = [['Mês', 'Memória de cálculo', 'Valor']];
+  L.forEach(m => { memoria(m, T.res.find(r => r.ym === m.ym)).forEach(([d, v, n]) => out.push([mesLabel(m.ym), (n === 'a' ? '   ' : n === 'c' ? '      ' : '') + d, rnd(v)])); out.push([]); });
+  return out;
+}
+function excelGeral(T){
+  const wb = XLSX.utils.book_new(), rs = T.res;
+  if (T.lancar.length){
+    sheet(wb, 'CMV a lançar', [...cabXls(T), ...abaLancar(T.lancar)], [14, 10, 20, 16, 16, 16, 16, 16, 16, 16, 8, 10]);
+    sheet(wb, 'Memória de cálculo', abaMemoria(T, T.lancar), [14, 90, 18]);
+  }
+  sheet(wb, 'Mês a mês', [...cabXls(T), ['Mês', 'Estoque inicial', 'Origem do estoque inicial', 'Compras', 'Fretes', 'Outras entradas', 'Devoluções de compra', 'Outras saídas', 'Créditos PIS/COFINS', 'Ajuste', 'Compras líquidas', 'Estoque final', 'CMV apurado', 'CMV contabilizado', 'Diferença CMV', 'Saldo final razão', 'Diferença estoque', 'Vendas s/ IPI e ST'],
+    ...rs.map(r => [mesLabel(r.ym), rnd(r.ei), r.eiFonte, rnd(r.tot.compra), rnd(r.tot.frete), rnd(r.tot.outent), rnd(-r.tot.devcomp), rnd(-r.tot.outsai), rnd(-r.piscof), rnd(r.ajuste),
+      rnd(r.comprasLiq), rnd(r.ef), rnd(r.cmv), rnd(r.cmvCont), r.cmv != null && r.cmvCont != null ? rnd(r.cmvCont - r.cmv) : null,
+      r.rz && r.rz.coberto ? rnd(r.rz.sf) : null, r.rz && r.rz.coberto && r.ef != null ? rnd(r.rz.sf - r.ef) : null, rnd(r.vendas)])],
+    [12, 16, 22, 16, 12, 14, 16, 12, 16, 12, 16, 16, 16, 16, 14, 16, 14, 16]);
+  const meses = Object.keys(T.inv).sort(), tipos = [...new Set(meses.flatMap(m => T.inv[m].usados.map(i => i.tipo)))];
+  sheet(wb, 'Estoque mês a mês', [['Mês', ...tipos, 'Total'], ...meses.map(m => [mesLabel(m), ...tipos.map(t => { const it = T.inv[m].usados.filter(x => x.tipo === t); return it.length ? rnd(it.reduce((s, x) => s + (x.valor || 0), 0)) : null; }), rnd(T.inv[m].valor)])],
+    [14, ...tipos.map(() => 16), 16]);
+  sheet(wb, 'Conferências', abaConc(rs), [12, 58, 18, 18, 14, 10]);
+  sheet(wb, 'Notas divergentes', abaNotas(rs), [12, 16, 10, 50, 11, 16, 16]);
+  sheet(wb, 'CFOPs', abaCfops(rs), [12, 9, 6, 34, 22, 6, 16, 14, 14, 14, 16]);
+  salvarXlsx(wb, nArq(T, mesCurto(rs[0].ym) + ' a ' + mesCurto(rs[rs.length - 1].ym)));
+}
+function excelMes(T, ym){
+  const r = T.res.find(x => x.ym === ym), wb = XLSX.utils.book_new();
+  sheet(wb, 'CMV', [...cabXls(T), ['Competência ' + mesLabel(ym)], [], ['Apuração do CMV', 'Valor'], ...linhasApuracao(r).map(([a, b]) => [a, rnd(b)]), [],
+    ['Inventário', 'Tipo', 'Total'], ...(r.inv ? r.inv.usados.map(i => [i.name, i.tipo, rnd(i.valor)]) : [])], [52, 18, 16]);
+  const L = T.lancar.filter(m => m.ym === ym);
+  if (L.length){
+    sheet(wb, 'CMV a lançar', abaLancar(L), [14, 10, 20, 16, 16, 16, 16, 16, 16, 16, 8, 10]);
+    sheet(wb, 'Memória de cálculo', abaMemoria(T, L), [14, 90, 18]);
+  }
+  sheet(wb, 'Conferências', abaConc([r]), [12, 58, 18, 18, 14, 10]);
+  if (r.notas) sheet(wb, 'Notas divergentes', abaNotas([r]), [12, 16, 10, 50, 11, 16, 16]);
+  if (r.rz && r.rz.coberto) sheet(wb, 'Razão', [['Data', 'Tipo', 'Histórico', 'Débito', 'Crédito'], ...r.rz.lancs.map(l => [l.data, RCATS[l.cat], l.hist, rnd(l.deb) || null, rnd(l.cred) || null])], [11, 20, 70, 16, 16]);
+  if (r.sped) sheet(wb, 'CFOPs', abaCfops([r]), [12, 9, 6, 34, 22, 6, 16, 14, 14, 14, 16]);
+  salvarXlsx(wb, nArq(T, mesCurto(ym)));
+}
+
+renderAll();
+</script>
+</body>
+</html>
