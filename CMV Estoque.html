@@ -168,7 +168,7 @@ details summary{cursor:pointer;color:var(--accent);margin:6px 0}
 
 <script>
 /* atualização: ao abrir pelo site, busca a página sem cache; se a versão publicada for outra, recarrega uma vez */
-const VERSAO = '2026-10-27.2';   // troque a cada publicação no GitHub
+const VERSAO = '2026-10-27.3';   // troque a cada publicação no GitHub
 if (location.protocol.startsWith('http') && !emArtifactCedo()){
   fetch(location.pathname, {cache:'reload'}).then(r => r.ok ? r.text() : '').then(t => {
     const m = t.match(/const VERSAO = '([^']+)'/);
@@ -332,6 +332,8 @@ async function addFiles(files, hint){
       const salvo = lsGet('cmv.ei.' + item.cnpj, {});
       if (salvo.ei) Object.assign(manual.ei, salvo.ei, manual.ei);
       if (salvo.eiTipo) Object.assign(manual.eiTipo, salvo.eiTipo, manual.eiTipo);
+      const em = lsGet('cmv.email.' + item.cnpj, null);
+      if (em && !email.para && !email.cc){ email.para = em.para || ''; email.cc = em.cc || ''; }
     }
     renderAll();
   }
@@ -511,7 +513,15 @@ function inventarios(){
   // se houver PDFs para o mês, o Bloco H do mesmo mês fica só como conferência
   Object.keys(porMes).forEach(ym => {
     const pdfs = porMes[ym].filter(i => i.origem === 'pdf');
-    porMes[ym] = {itens:porMes[ym], usados:pdfs.length ? pdfs : porMes[ym]};
+    // várias versões do mesmo tipo no mês: a que tem texto vale; digitalizadas e repetidas (mesmo total) ficam só como conferência
+    const usados = [];
+    [...new Set(pdfs.map(i => i.tipo))].forEach(t => {
+      const doTipo = pdfs.filter(i => i.tipo === t), comTexto = doTipo.filter(i => !i.semTexto && i.valor != null);
+      const base = comTexto.length ? comTexto : doTipo.filter(i => i.valor != null).slice(0, 1).concat(doTipo.every(i => i.valor == null) ? doTipo.slice(0, 1) : []);
+      const vistos = new Set();
+      base.forEach(i => { const k = i.valor == null ? 'x' + i.id : r2(i.valor); if (!vistos.has(k)){ vistos.add(k); usados.push(i); } });
+    });
+    porMes[ym] = {itens:porMes[ym], usados:pdfs.length ? usados : porMes[ym]};
     const u = porMes[ym].usados;
     porMes[ym].valor = u.every(i => i.valor != null) ? u.reduce((s, i) => s + i.valor, 0) : null;
   });
@@ -734,6 +744,7 @@ function renderAll(){
       <button data-aba="lancar" class="${aba === 'lancar' ? 'on' : ''}">CMV a lançar</button>
       <button data-aba="geral" class="${aba === 'geral' ? 'on' : ''}">Mês a mês</button>
       <button data-aba="mes" class="${aba === 'mes' ? 'on' : ''}">Detalhe do mês</button>
+      <button data-aba="email" class="${aba === 'email' ? 'on' : ''}">Enviar por e-mail</button>
       <select id="mesSel">${T.meses.map(m => `<option value="${m}" ${m === mesSel ? 'selected' : ''}>${mesLabel(m)}</option>`).join('')}</select>
       <span class="sp"></span>
       <button id="pGeral">Relatório geral (PDF)</button>
@@ -741,8 +752,138 @@ function renderAll(){
       <button id="pMes">Relatório do mês (PDF)</button>
       <button id="xMes">Relatório do mês (Excel)</button>
     </div>
-    ${aba === 'lancar' ? viewLancar(T, true) : aba === 'geral' ? viewGeral(T) : viewMes(T.res.find(r => r.ym === mesSel), true, T)}`;
+    ${aba === 'lancar' ? viewLancar(T, true) : aba === 'geral' ? viewGeral(T) : aba === 'email' ? viewEmail(T) : viewMes(T.res.find(r => r.ym === mesSel), true, T)}`;
   bindOut(T);
+  if (aba === 'email') bindEmail(T);
+}
+
+/* ---------- aba de e-mail: monta o resumo para revisar, copiar ou abrir no programa de e-mail ---------- */
+const email = {para:'', cc:'', assunto:null, msg:null, periodo:'geral', preview:false};
+const saudacao = () => { const h = new Date().getHours(); return h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite'; };
+function primeiroNome(para){
+  const l = (para || '').split(/[;,]/)[0].trim().split('@')[0].split(/[._-]/)[0];
+  return /^[a-zà-ú]{2,}$/i.test(l) ? l[0].toUpperCase() + l.slice(1).toLowerCase() : '';
+}
+function periodoEmail(T){
+  const ms = (T.lancar.length ? T.lancar : T.res).map(x => x.ym);
+  return email.periodo === 'mes' && ms.includes(mesSel) ? [mesSel] : ms;
+}
+const textoPeriodo = yms => yms.length === 1 ? mesLabel(yms[0]) : mesLabel(yms[0]) + ' a ' + mesLabel(yms[yms.length - 1]);
+function msgPadrao(T){
+  const n = primeiroNome(email.para);
+  return `${saudacao()}${n ? ', ' + n : ''}!\nTudo bem?\n\nSegue o relatório de estoque e CMV${T.cliente ? ' da empresa ' + T.cliente.nome : ''} referente a ${textoPeriodo(periodoEmail(T))}, elaborado com base no razão da conta de estoque e nos inventários do período, e confrontado com o SPED ICMS/IPI. O relatório completo segue em anexo.`;
+}
+const assuntoPadrao = T => `Relatório de estoque e CMV${T.cliente ? ' - ' + T.cliente.nome : ''} - ${textoPeriodo(periodoEmail(T))}`;
+const situacaoEmail = r => ({ok:'lançado', bad:'não lançado', warn:'lançado com diferença', na:'sem inventário'})[situacaoCmv(r).cls];
+function pontosAtencao(T, yms){
+  const p = [], rows = linhasMovimento(T, yms);
+  const lancou = r => r.lanc && Math.abs(r.lanc) > opts.tol;
+  const nao = rows.filter(r => r.falta != null && Math.abs(r.falta) > opts.tol && !lancou(r));
+  if (nao.length) p.push('CMV ainda não lançado no Domínio: ' + nao.map(r => `${mesCurto(r.ym)} ${r.tipo} (${fmt(r.cmv)})`).join('; ') + '.');
+  const dif = rows.filter(r => r.falta != null && Math.abs(r.falta) > opts.tol && lancou(r));
+  if (dif.length) p.push('CMV lançado com diferença: ' + dif.map(r => `${mesCurto(r.ym)} ${r.tipo} (${r.falta > 0 ? 'falta lançar' : 'estornar'} ${fmt(Math.abs(r.falta))})`).join('; ') + '.');
+  const semInv = [...new Set(rows.filter(r => r.falta == null).map(r => mesLabel(r.ym)))];
+  if (semInv.length) p.push('Sem inventário final para o cálculo: ' + semInv.join(', ') + '.');
+  const bh = rows.find(r => r.blocoH);
+  if (bh) p.push(`O estoque inicial de ${mesLabel(bh.ym)} (${fmt(bh.eiMes ?? bh.ei)}) diverge do inventário informado no Bloco H do SPED em ${bh.blocoH.data} (${fmt(bh.blocoH.valor)}): diferença de ${fmt((bh.eiMes ?? bh.ei) - bh.blocoH.valor)}.`);
+  T.res.filter(r => yms.includes(r.ym)).forEach(r => {
+    const c = r.conc.find(c => c.nome.startsWith('Compras'));
+    if (c && c.d != null && Math.abs(c.d) > opts.tol){
+      const n = r.notas ? r.notas.soSped.length + r.notas.soRazao.length + r.notas.difs.length : 0;
+      p.push(`${mesLabel(r.ym)}: compras no SPED ICMS ${fmt(c.a)} × compras no razão ${fmt(c.b)} (diferença de ${fmt(c.d)}${n ? `, em ${n} nota${n > 1 ? 's' : ''}` : ''}).`);
+    }
+  });
+  return p;
+}
+function emailHTML(T){
+  const yms = periodoEmail(T), rows = linhasMovimento(T, yms), msg = email.msg ?? msgPadrao(T), pts = pontosAtencao(T, yms);
+  const base = 'border:1px solid #cfd5df;padding:4px 8px;font-family:Arial,sans-serif;font-size:12px;';
+  const n = `style="${base}text-align:right;white-space:nowrap"`, l = `style="${base}text-align:left"`;
+  const th = `style="${base}background:#1f5fbf;color:#ffffff;text-align:center"`;
+  const cor = {ok:'#1a7f4b', bad:'#b42318', warn:'#9a6700', na:'#666666'};
+  return `<div style="font-family:Arial,sans-serif;font-size:13px;color:#222222">
+    ${esc(msg).replace(/\n/g, '<br>')}<br><br>
+    <b>Resumo do estoque e CMV - ${textoPeriodo(yms)}</b>
+    <table style="border-collapse:collapse;margin:6px 0">
+      <tr><th ${th}>Mês</th><th ${th}>Estoque</th><th ${th}>Estoque inicial</th><th ${th}>(+) Entradas</th><th ${th}>(−) Deduções</th><th ${th}>(−) CMV</th><th ${th}>(=) Estoque final</th><th ${th}>CMV no Domínio</th></tr>
+      ${rows.map(r => `<tr style="background:${r.alt ? '#eef1f6' : '#ffffff'}">
+        <td ${l}>${r.primeira ? mesLabel(r.ym) : ''}</td><td ${l}>${esc(r.tipo)}</td>
+        <td ${n}>${fmt(r.ei)}</td><td ${n}>${fmt(r.entradas)}</td><td ${n}>${fmt(r.ded)}</td><td ${n}><b>${fmt(r.cmv)}</b></td><td ${n}>${fmt(r.ef)}</td>
+        <td style="${base}color:${cor[situacaoCmv(r).cls]};font-weight:bold">${situacaoEmail(r)}</td></tr>`).join('')}
+    </table>
+    <span style="font-size:11px;color:#555555">Estoque inicial + entradas − deduções (créditos de IPI, PIS e COFINS e devoluções) − CMV = estoque final (inventário).</span><br><br>
+    ${pts.length ? `<b>Pontos de atenção</b><ul style="margin-top:4px">${pts.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : 'Todos os meses conferem com o razão e com o SPED ICMS/IPI.<br><br>'}
+    Fico à disposição.</div>`;
+}
+function emailTexto(T){
+  const yms = periodoEmail(T), rows = linhasMovimento(T, yms), pts = pontosAtencao(T, yms);
+  return [email.msg ?? msgPadrao(T), '', `Resumo do estoque e CMV - ${textoPeriodo(yms)}`,
+    ...rows.map(r => `${mesCurto(r.ym)} ${r.tipo}: estoque inicial ${fmt(r.ei)} + entradas ${fmt(r.entradas)} - deduções ${fmt(r.ded)} - CMV ${fmt(r.cmv)} = estoque final ${fmt(r.ef)} (${situacaoEmail(r)})`),
+    '', ...(pts.length ? ['Pontos de atenção:', ...pts.map(x => '- ' + x)] : ['Todos os meses conferem com o razão e com o SPED ICMS/IPI.']), '', 'Fico à disposição.'].join('\n');
+}
+function viewEmail(T){
+  if (!T.res.length && !T.lancar.length) return '<div class="card empty">Carregue os arquivos para montar o e-mail.</div>';
+  const lab = 'font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);font-weight:600';
+  return `<div class="card">
+    <h2>Enviar por e-mail <small>resumo do estoque e CMV, com o relatório em anexo. Nada é enviado sem você revisar e enviar pelo seu e-mail.</small></h2>
+    <div class="tabs" style="margin-bottom:10px"><span style="${lab}">Período</span>
+      <button data-eper="geral" class="${email.periodo === 'geral' ? 'on' : ''}">Todos os meses</button>
+      <button data-eper="mes" class="${email.periodo === 'mes' ? 'on' : ''}">Só ${mesLabel(mesSel)}</button></div>
+    <div class="grid2" style="gap:12px">
+      <label style="display:flex;flex-direction:column;gap:4px"><span style="${lab}">Para (e-mails)</span><input type="text" id="ePara" value="${esc(email.para)}" placeholder="nome@empresa.com.br"></label>
+      <label style="display:flex;flex-direction:column;gap:4px"><span style="${lab}">CC (opcional)</span><input type="text" id="eCc" value="${esc(email.cc)}" placeholder="separe com ponto e vírgula"></label>
+    </div>
+    <label style="display:flex;flex-direction:column;gap:4px;margin-top:10px"><span style="${lab}">Assunto</span><input type="text" id="eAssunto" value="${esc(email.assunto ?? assuntoPadrao(T))}"></label>
+    <label style="display:flex;flex-direction:column;gap:4px;margin-top:10px"><span style="${lab};display:flex;justify-content:space-between">Mensagem do e-mail <a href="#" id="eMsgPadrao" style="text-transform:none;letter-spacing:0;color:var(--accent)">Usar mensagem padrão</a></span>
+      <textarea id="eMsg" rows="7" style="font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px">${esc(email.msg ?? msgPadrao(T))}</textarea></label>
+    <div class="src" style="margin-top:4px">Vai no início do e-mail, antes do resumo. O padrão se ajusta à empresa, ao período, ao destinatário e ao horário (bom dia, boa tarde, boa noite).</div>
+    <div class="btns" style="margin-top:12px">
+      <button class="primary" id="ePrev">Pré-visualizar e-mail</button>
+      <button id="eCopiar">Copiar e-mail</button>
+      <button id="eAbrir">Abrir no programa de e-mail</button>
+      <button id="eXls">Baixar relatório (Excel)</button>
+      <button id="ePdf">Baixar relatório (PDF)</button>
+    </div>
+    <div class="src" style="margin-top:6px">"Copiar e-mail" copia o texto com a tabela formatada para colar no Gmail ou no Outlook. "Abrir no programa de e-mail" abre um e-mail novo com o texto simples. Em nenhum dos dois casos o relatório vai anexado sozinho: baixe e anexe antes de enviar.</div>
+    <div id="eAviso" class="src" style="margin-top:6px"></div>
+  </div>
+  ${email.preview ? `<div class="card"><h2>Pré-visualização</h2>
+    <div class="src">Para: ${esc(email.para || '—')}${email.cc ? ' · CC: ' + esc(email.cc) : ''}<br>Assunto: ${esc(email.assunto ?? assuntoPadrao(T))}</div>
+    <div id="ePreview" style="background:#ffffff;color:#222222;border:1px solid var(--line);border-radius:8px;padding:16px;margin-top:10px;overflow-x:auto">${emailHTML(T)}</div></div>` : ''}`;
+}
+function bindEmail(T){
+  const $ = id => document.getElementById(id);
+  const salvar = () => { if (T.cliente) lsSet('cmv.email.' + T.cliente.cnpj, {para:email.para, cc:email.cc}); };
+  const aviso = t => { $('eAviso').textContent = t; };
+  $('ePara').addEventListener('input', e => { email.para = e.target.value; salvar(); if (email.msg == null) $('eMsg').value = msgPadrao(T); });
+  $('eCc').addEventListener('input', e => { email.cc = e.target.value; salvar(); });
+  $('eAssunto').addEventListener('input', e => { email.assunto = e.target.value; });
+  $('eMsg').addEventListener('input', e => { email.msg = e.target.value; });
+  $('eMsgPadrao').addEventListener('click', e => { e.preventDefault(); email.msg = null; email.assunto = null; renderAll(); });
+  document.querySelectorAll('[data-eper]').forEach(b => b.addEventListener('click', () => { email.periodo = b.dataset.eper; email.assunto = null; renderAll(); }));
+  $('ePrev').addEventListener('click', () => { email.preview = true; renderAll(); document.getElementById('ePreview')?.scrollIntoView({behavior:'smooth', block:'start'}); });
+  $('eCopiar').addEventListener('click', async () => {
+    const html = emailHTML(T), txt = emailTexto(T);
+    try {
+      await navigator.clipboard.write([new ClipboardItem({'text/html':new Blob([html], {type:'text/html'}), 'text/plain':new Blob([txt], {type:'text/plain'})})]);
+      aviso('E-mail copiado. Cole no corpo de um e-mail novo (Ctrl + V) e anexe o relatório.');
+    } catch(err){
+      // sem acesso à área de transferência: mostra a pré-visualização selecionada para copiar com Ctrl + C
+      email.preview = true; renderAll();
+      const el = document.getElementById('ePreview'), sel = window.getSelection(), rg = document.createRange();
+      rg.selectNodeContents(el); sel.removeAllRanges(); sel.addRange(rg);
+      document.getElementById('eAviso').textContent = 'Não consegui copiar sozinho: o texto está selecionado na pré-visualização, aperte Ctrl + C.';
+    }
+  });
+  $('eAbrir').addEventListener('click', () => {
+    const q = [email.cc && 'cc=' + encodeURIComponent(email.cc), 'subject=' + encodeURIComponent(email.assunto ?? assuntoPadrao(T)), 'body=' + encodeURIComponent(emailTexto(T))].filter(Boolean).join('&');
+    const a = document.createElement('a'); a.href = 'mailto:' + encodeURIComponent(email.para).replace(/%40/g, '@').replace(/%3B/gi, ';') + '?' + q; a.click();
+    aviso('Se nada abriu, o computador não tem um programa de e-mail padrão. Use "Copiar e-mail" e cole no Gmail.');
+  });
+  const yms = periodoEmail(T), base = 'CMV ' + (T.cliente ? T.cliente.nome.split(' ').slice(0, 2).join(' ') + ' ' : '');
+  $('eXls').addEventListener('click', () => yms.length === 1 ? excelMes(T, yms[0]) : excelGeral(T));
+  $('ePdf').addEventListener('click', () => yms.length === 1 ? imprimir(relMes(T, yms[0]), base + mesCurto(yms[0]).replace('/', '-'))
+    : imprimir(relGeral(T), base + mesCurto(yms[0]).replace('/', '-') + ' a ' + mesCurto(yms[yms.length - 1]).replace('/', '-')));
 }
 
 // estoque inicial do período, digitável por tipo de estoque (ou total)
