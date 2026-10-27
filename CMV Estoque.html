@@ -75,7 +75,12 @@ tr.click:hover td{background:var(--accent-soft)}
 tr.m-alt > td{background:var(--band)}
 tr.m-alt > td.cmvcol{background:var(--accent-soft)}
 td.cmvcol,th.cmvcol{background:var(--accent-soft);border-left:2px solid var(--accent);border-right:2px solid var(--accent)}
-td.cmvcol .status{margin-top:3px}
+td.cmvcol{white-space:nowrap}
+.flag{display:inline-block;min-width:18px;height:18px;line-height:18px;border-radius:9px;text-align:center;font-size:12px;font-weight:700;vertical-align:1px}
+.flag.ok{background:var(--ok-soft);color:var(--ok)}
+.flag.bad{background:var(--bad);color:#fff}
+.flag.warn{background:var(--warn-soft);color:var(--warn)}
+.flag.na{background:var(--bg);color:var(--muted)}
 .src{color:var(--muted);font-size:12px}
 input[type=text],input[type=number],select{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:6px;padding:4px 6px}
 input.money{width:140px;text-align:right}
@@ -834,7 +839,8 @@ function viewLancar(T, editavel){
       <tr class="total"><td>Acumulado</td><td></td><td></td>${td(soma('compras'))}${td(soma('credIpi'))}${td(soma('credPisCof'))}${td(soma('outrasDed'))}<td></td>${td(soma('cmv'), 'cmvcol')}</tr>
     </table></div>
     <div class="src" style="margin-top:6px">CMV = estoque inicial (estoque final do mês anterior; no 1º mês, o digitado ou o saldo do razão) + compras − créditos de IPI − créditos de PIS/COFINS − devoluções e outros − inventário final.
-      Todos os valores vêm do razão, em cada conta de estoque: os créditos de PIS/COFINS reduzem o CMV da conta onde foram lançados. O próprio lançamento de CMV não entra na conta.</div>
+      Todos os valores vêm do razão, em cada conta de estoque: os créditos de PIS/COFINS reduzem o CMV da conta onde foram lançados. O próprio lançamento de CMV não entra na conta.
+      <div style="margin-top:4px">${legendaFlags}</div></div>
     ${L.some(m => m.grupos.length > 1 && m.grupos.some(g => g.cmv != null && g.cmv < -opts.tol)) ? `<div class="card avisos" style="margin:10px 0 0">Há mês com CMV negativo em um tipo de estoque (${L.flatMap(m => m.grupos.filter(g => g.cmv != null && g.cmv < -opts.tol).map(g => g.tipo + ' ' + mesCurto(m.ym))).join(', ')}). Normalmente isso indica compras desse estoque lançadas na conta do outro. Confira no razão antes de lançar por tipo. O total do mês continua valendo.</div>` : ''}
     ${editavel && contas.length > 1 ? `<details><summary>Qual inventário corresponde a cada conta</summary><div class="map">
       ${contas.map(c => `<label>${esc(c.conta)} ${esc(c.nome)}<select data-conta="${esc(c.conta)}">${tipos.map(t => `<option ${t === c.tipo ? 'selected' : ''}>${t}</option>`).join('')}</select></label>`).join('')}
@@ -1080,7 +1086,7 @@ function linhasMovimento(T, yms){
   return out;
 }
 // divergência do estoque inicial com o Bloco H do SPED (só informativa)
-const notaBlocoH = (bh, ei) => bh ? `<div class="src" style="color:var(--warn)">${esc(bh.nome.replace('Bloco H do SPED', 'Bloco H do SPED de'))} em ${esc(bh.data)}: ${fmt(bh.valor)}${ei != null ? ` · diferença ${fmt(ei - bh.valor)}` : ''}</div>` : '';
+const notaBlocoH = (bh, ei) => bh ? `<div class="src" style="color:var(--warn);white-space:normal;max-width:190px;margin-left:auto">${esc(bh.nome.replace('Bloco H do SPED', 'Bloco H do SPED de'))} em ${esc(bh.data)}: ${fmt(bh.valor)}${ei != null ? `<br>diferença ${fmt(ei - bh.valor)}` : ''}</div>` : '';
 // situação do CMV no Domínio (razão): já lançado, a lançar, a complementar ou a estornar
 function situacaoCmv(x){
   if (x.falta == null) return {txt:'sem inventário final', cls:'na'};
@@ -1089,8 +1095,9 @@ function situacaoCmv(x){
   if (!x.lanc || Math.abs(x.lanc) <= opts.tol) return {txt:'não lançado no Domínio', cls:'bad'};
   return {txt:`já lançado ${fmt(x.lanc)} · ${x.falta > 0 ? 'lançar mais' : 'estornar'} ${fmt(Math.abs(x.falta))} no Domínio`, cls:'warn'};
 }
-const celulaCmv = x => { const s = situacaoCmv(x);
-  return `<td class="n cmvcol"><b style="font-size:15px">${fmt(x.cmv)}</b><div><span class="status ${s.cls}">${esc(s.txt)}</span></div></td>`; };
+const celulaCmv = x => { const s = situacaoCmv(x), ic = {ok:'✓', bad:'✗', warn:'!', na:'–'}[s.cls];
+  return `<td class="n cmvcol" title="${esc(s.txt)}"><b>${fmt(x.cmv)}</b> <span class="flag ${s.cls}">${ic}</span></td>`; };
+const legendaFlags = '<span class="flag ok">✓</span> lançado no Domínio · <span class="flag bad">✗</span> não lançado · <span class="flag warn">!</span> lançado com diferença (passe o mouse ou abra a linha para ver o valor)';
 function relMovimento(T, yms, titulo){
   const rows = linhasMovimento(T, yms);
   const linha = r => {
@@ -1110,7 +1117,10 @@ function relMovimento(T, yms, titulo){
     <div><b>Estoque inicial:</b> estoque final do mês anterior. No primeiro mês, ${T.lancar.length && T.lancar[0].grupos.some(g => g.eiFonte === 'digitado') ? 'o valor informado' : 'o saldo inicial da conta no razão'}.</div>
     <div><b>(+) Entradas:</b> compras e demais lançamentos a débito na conta de estoque.</div>
     <div><b>(−) Deduções:</b> créditos de IPI, PIS e COFINS sobre as compras e devoluções de compra, lançados a crédito na conta de estoque.</div>
-    <div><b>(−) CMV:</b> custo das mercadorias vendidas no mês. É o valor que faz o estoque final da conta ficar igual ao inventário. A marcação embaixo mostra se ele já está lançado no Domínio ou quanto falta lançar.</div>
+    <div><b>(−) CMV:</b> custo das mercadorias vendidas no mês. É o valor que faz o estoque final da conta ficar igual ao inventário. O sinal ao lado mostra a situação no Domínio:</div>
+    <div style="padding-left:12px">${linhasMovimento(T, yms).filter(r => r.falta != null && Math.abs(r.falta) > opts.tol && r.lanc && !(r.total && !r.unico)).length
+      ? '<span class="flag ok">✓</span> lançado · <span class="flag bad">✗</span> não lançado · <span class="flag warn">!</span> lançado com diferença: ' + linhasMovimento(T, yms).filter(r => r.falta != null && Math.abs(r.falta) > opts.tol && r.lanc && !(r.total && !r.unico)).map(r => `${mesCurto(r.ym)} ${esc(r.tipo)} ${r.falta > 0 ? 'falta' : 'estornar'} ${fmt(Math.abs(r.falta))}`).join('; ')
+      : '<span class="flag ok">✓</span> lançado · <span class="flag bad">✗</span> não lançado'}</div>
     <div><b>(=) Estoque final:</b> total dos inventários do último dia do mês.</div>
     <div style="margin-top:6px"><b>Conta:</b> estoque inicial + entradas − deduções − CMV = estoque final.</div>
   </div>`;
